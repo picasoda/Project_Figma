@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GridFrame</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 툴바 (항상 보임) -->
+<div id="toolbar">
+  <button class="tb-btn" id="btn-toolbar-new">+ 새파일</button>
+  <div class="tb-divider"></div>
+  <input class="tb-project-name" id="display-project-name" value="" placeholder="프로젝트 없음" disabled />
+  <div class="tb-divider"></div>
+  <button class="tb-btn" id="btn-obj-create" disabled>📦 객체 생성</button>
+  <div class="tb-divider"></div>
+  <span class="tb-zoom" id="display-zoom">100%</span>
+  <button class="tb-btn" id="btn-fit" disabled>⊞ 맞추기</button>
+  <button class="tb-btn" id="btn-grid-toggle" disabled># 격자</button>
+  <div class="tb-spacer"></div>
+  <button class="tb-btn" id="btn-save" disabled>💾 저장</button>
+  <button class="tb-btn" id="btn-load">📂 불러오기</button>
+  <button class="tb-btn" id="btn-export" disabled>🚀 Export</button>
+</div>
+
+<!-- 메인 영역 (항상 보임) -->
+<div id="main-area">
+  <div id="canvas-area">
+    <span id="empty-msg">+ 새파일 버튼을 눌러 프로젝트를 시작하세요</span>
+    <canvas id="grid-canvas"></canvas>
+  </div>
+</div>
+
+<!-- 하단 바 (항상 보임) -->
+<div id="object-bar">
+  <span id="bar-empty-msg">프로젝트를 생성하면 객체 목록이 표시됩니다</span>
+</div>
+
+<!-- 파일 만들기 모달 -->
+<div id="create-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-title">새 파일 만들기</div>
+
+    <div class="modal-group">
+      <label class="modal-label">프로젝트 이름</label>
+      <input class="modal-input" id="input-project-name" placeholder="프로젝트 이름을 입력하세요" />
+      <div class="modal-error" id="create-error"></div>
+    </div>
+
+    <div class="modal-group">
+      <label class="modal-label">프리셋</label>
+      <div class="preset-group" id="preset-group">
+        <div class="preset-btn active" data-preset="desktop">
+          <span class="preset-name">Desktop</span>
+          <span class="preset-info">1920×1080</span>
+        </div>
+        <div class="preset-btn" data-preset="tablet">
+          <span class="preset-name">Tablet</span>
+          <span class="preset-info">768×1024</span>
+        </div>
+        <div class="preset-btn" data-preset="mobile">
+          <span class="preset-name">Mobile</span>
+          <span class="preset-info">390×844</span>
+        </div>
+        <div class="preset-btn" data-preset="custom">
+          <span class="preset-name">Custom</span>
+          <span class="preset-info">직접 입력</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-group">
+      <label class="modal-label">격자 배율</label>
+      <div class="scale-control">
+        <button class="scale-btn" id="btn-scale-down">▼</button>
+        <span class="scale-display" id="scale-value">×1.0</span>
+        <button class="scale-btn" id="btn-scale-up">▲</button>
+      </div>
+      <div class="grid-info">
+        <div class="grid-info-item">격자: <span id="grid-size-display">32열 × 18행</span></div>
+        <div class="grid-info-item">해상도: <span id="resolution-display">1920 × 1080</span></div>
+      </div>
+    </div>
+
+    <div class="custom-inputs" id="custom-inputs">
+      <div class="custom-field">
+        <label>가로 해상도 (px)</label>
+        <input type="number" id="custom-width" value="1920" min="100" max="7680" />
+      </div>
+      <div class="custom-field">
+        <label>세로 해상도 (px)</label>
+        <input type="number" id="custom-height" value="1080" min="100" max="4320" />
+      </div>
+      <div class="custom-field">
+        <label>열 수</label>
+        <input type="number" id="custom-cols" value="32" min="2" max="200" />
+      </div>
+      <div class="custom-field">
+        <label>행 수</label>
+        <input type="number" id="custom-rows" value="18" min="2" max="200" />
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" id="btn-create-cancel">취소</button>
+      <button class="modal-btn modal-btn-primary" id="btn-create-confirm">만들기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 플로팅 메시지 -->
+<div id="floating-msg">
+  <div class="float-msg-text">저장하지 않은 변경사항이 있습니다.</div>
+  <div class="float-msg-actions">
+    <button class="float-msg-btn primary" id="btn-float-save">저장 후 만들기</button>
+    <button class="float-msg-btn secondary" id="btn-float-discard">그냥 만들기</button>
+    <button class="float-msg-btn ghost" id="btn-float-cancel">취소</button>
+  </div>
+</div>
+
+<script src="app.js">
+</script>
+
+</body>
+</html>
