@@ -96,7 +96,7 @@
     transform: translate(-50%, -50%);
     display: none;
   }
-  #grid-canvas.visible { display: block; }
+  #grid-canvas.visible { display: block; cursor: crosshair; }
 
   /* ===== 하단 바 ===== */
   #object-bar {
