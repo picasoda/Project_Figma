@@ -24,6 +24,11 @@
   let dragState      = null;      // { startCol, startRow, endCol, endRow }
   let isDragging     = false;     // 마우스 버튼 누름 상태
   let selectedObject = null;      // 현재 선택된 객체
+  let moveState      = null;      // 이동 드래그 상태
+  let resizeState    = null;      // 크기 조절 드래그 상태
+  let multiSelection = new Set(); // 다중 선택 객체 ID
+  let history        = [];        // Undo 히스토리
+  const MAX_HISTORY  = 50;
 
   // ===== DOM =====
   const createModal        = document.getElementById('create-modal');
@@ -43,6 +48,9 @@
   const panelLabelInput    = document.getElementById('panel-label');
   const panelDescInput     = document.getElementById('panel-description');
   const panelPaletteEl     = document.getElementById('panel-palette');
+  const panelSingleContent = document.getElementById('panel-single-content');
+  const panelMultiInfo     = document.getElementById('panel-multi-info');
+  const panelMultiCount    = document.getElementById('panel-multi-count');
 
   // 프로젝트 생성 후 활성화할 버튼들
   const projectButtons = [
@@ -101,6 +109,123 @@
     ) || null;
   }
 
+  // 특정 객체를 제외한 겹침 체크 (이동·크기조절용)
+  function overlapsOtherObjects(sc, sr, ec, er, excludeId) {
+    return objects.some(obj =>
+      obj.id !== excludeId &&
+      sc <= obj.endCol && ec >= obj.startCol &&
+      sr <= obj.endRow && er >= obj.startRow
+    );
+  }
+
+  // 선택된 객체 가장자리 감지 → edge 문자열 반환 (n/s/e/w/nw/ne/sw/se/null)
+  function getEdgeAtMouse(e, obj, cfg) {
+    const rect  = gridCanvas.getBoundingClientRect();
+    const cellW = rect.width  / cfg.cols;
+    const cellH = rect.height / cfg.rows;
+    const mx    = e.clientX - rect.left;
+    const my    = e.clientY - rect.top;
+    const left   = obj.startCol * cellW;
+    const right  = (obj.endCol + 1) * cellW;
+    const top    = obj.startRow * cellH;
+    const bottom = (obj.endRow + 1) * cellH;
+    const th = Math.min(6, cellW * 0.3, cellH * 0.3); // 감지 임계값
+    const onL = mx >= left   && mx <= left   + th;
+    const onR = mx <= right  && mx >= right  - th;
+    const onT = my >= top    && my <= top    + th;
+    const onB = my <= bottom && my >= bottom - th;
+    if (onT && onL) return 'nw';
+    if (onT && onR) return 'ne';
+    if (onB && onL) return 'sw';
+    if (onB && onR) return 'se';
+    if (onT) return 'n';
+    if (onB) return 's';
+    if (onL) return 'w';
+    if (onR) return 'e';
+    return null;
+  }
+
+  const EDGE_CURSORS = { n:'n-resize', s:'s-resize', e:'e-resize', w:'w-resize',
+                         nw:'nw-resize', ne:'ne-resize', sw:'sw-resize', se:'se-resize' };
+
+  // edge + delta → 새 경계 계산 (최소 1×1 보장)
+  function computeResizeBounds(rs, dc, dr, cfg) {
+    let { origStartCol:sc, origStartRow:sr, origEndCol:ec, origEndRow:er } = rs;
+    if (rs.edge.includes('n')) sr = Math.max(0,          Math.min(er, rs.origStartRow + dr));
+    if (rs.edge.includes('s')) er = Math.max(sr,         Math.min(cfg.rows - 1, rs.origEndRow + dr));
+    if (rs.edge.includes('w')) sc = Math.max(0,          Math.min(ec, rs.origStartCol + dc));
+    if (rs.edge.includes('e')) ec = Math.max(sc,         Math.min(cfg.cols - 1, rs.origEndCol + dc));
+    return { sc, sr, ec, er };
+  }
+
+  // ===== 히스토리 (Undo) =====
+
+  function pushHistory() {
+    history.push({ objects: objects.map(o => ({ ...o })), usedColors: new Set(usedColors) });
+    if (history.length > MAX_HISTORY) history.shift();
+  }
+
+  function undo() {
+    if (!history.length || !projectCreated) return;
+    const snap = history.pop();
+    objects    = snap.objects;
+    usedColors = snap.usedColors;
+    selectedObject = null;
+    moveState      = null;
+    resizeState    = null;
+    multiSelection.clear();
+    propertyPanel.classList.add('hidden');
+    panelMultiInfo.classList.add('hidden');
+    panelSingleContent.classList.remove('hidden');
+    renderCanvas(currentConfig);
+    updateObjectBar();
+  }
+
+  // ===== 다중 선택 =====
+
+  function toggleMultiSelect(obj) {
+    if (selectedObject && selectedObject !== obj) {
+      multiSelection.add(selectedObject.id);
+      selectedObject = null;
+    }
+    if (multiSelection.has(obj.id)) multiSelection.delete(obj.id);
+    else multiSelection.add(obj.id);
+
+    if (multiSelection.size > 0) {
+      panelMultiCount.textContent = `${multiSelection.size}개 선택됨`;
+      panelSingleContent.classList.add('hidden');
+      panelMultiInfo.classList.remove('hidden');
+      propertyPanel.classList.remove('hidden');
+    } else {
+      panelMultiInfo.classList.add('hidden');
+      panelSingleContent.classList.remove('hidden');
+      propertyPanel.classList.add('hidden');
+    }
+    renderCanvas(currentConfig);
+  }
+
+  function clearMultiSelection() {
+    if (multiSelection.size === 0) return;
+    multiSelection.clear();
+    panelMultiInfo.classList.add('hidden');
+    panelSingleContent.classList.remove('hidden');
+  }
+
+  function deleteMultiSelection() {
+    if (multiSelection.size === 0) return;
+    pushHistory();
+    objects = objects.filter(o => {
+      if (multiSelection.has(o.id)) { usedColors.delete(o.color); return false; }
+      return true;
+    });
+    multiSelection.clear();
+    panelMultiInfo.classList.add('hidden');
+    panelSingleContent.classList.remove('hidden');
+    propertyPanel.classList.add('hidden');
+    renderCanvas(currentConfig);
+    updateObjectBar();
+  }
+
   // ===== 객체 선택·패널 =====
 
   // 객체 선택: 하이라이트 + 패널 열기
@@ -108,6 +233,7 @@
     selectedObject = obj;
     dragState      = null;
     isDragging     = false;
+    clearMultiSelection();
     renderCanvas(currentConfig);
     openPropertyPanel(obj);
   }
@@ -115,6 +241,9 @@
   // 선택 해제: 하이라이트 제거 + 패널 닫기
   function deselectObject() {
     selectedObject = null;
+    moveState      = null;
+    resizeState    = null;
+    clearMultiSelection();
     propertyPanel.classList.add('hidden');
     renderCanvas(currentConfig);
   }
@@ -151,6 +280,7 @@
   // 선택 객체 삭제 (색상 반환)
   function deleteSelectedObject() {
     if (!selectedObject) return;
+    pushHistory();
     usedColors.delete(selectedObject.color);
     objects = objects.filter(o => o.id !== selectedObject.id);
     selectedObject = null;
@@ -190,31 +320,49 @@
     ctx.fillStyle = '#2a2a3a';
     ctx.fillRect(0, 0, canvasW, canvasH);
 
-    // 객체 렌더링
+    // 이동·크기조절 중인 객체 ID (해당 객체는 별도 프리뷰로 렌더링)
+    const activeId = moveState ? moveState.obj.id : (resizeState ? resizeState.obj.id : null);
+
+    // 일반 객체 렌더링 (활성 객체 제외)
     objects.forEach(obj => {
+      if (obj.id === activeId) return;
       const x = obj.startCol * cellW;
       const y = obj.startRow * cellH;
       const w = (obj.endCol - obj.startCol + 1) * cellW;
       const h = (obj.endRow - obj.startRow + 1) * cellH;
-      // 반투명 채우기
       ctx.globalAlpha = 0.55;
       ctx.fillStyle   = obj.color;
       ctx.fillRect(x, y, w, h);
       ctx.globalAlpha = 1;
-      // 테두리
       ctx.strokeStyle = obj.color;
       ctx.lineWidth   = 2;
       ctx.setLineDash([]);
       ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
     });
 
-    // 선택된 객체 하이라이트 (흰 점선 테두리)
-    if (selectedObject) {
+    // 다중 선택 하이라이트 (청록색 점선)
+    if (multiSelection.size > 0) {
+      objects.forEach(obj => {
+        if (!multiSelection.has(obj.id)) return;
+        const x = obj.startCol * cellW;
+        const y = obj.startRow * cellH;
+        const w = (obj.endCol - obj.startCol + 1) * cellW;
+        const h = (obj.endRow - obj.startRow + 1) * cellH;
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth   = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.setLineDash([]);
+      });
+    }
+
+    // 단일 선택 하이라이트 (흰 점선) — 이동·크기조절 중에는 프리뷰로 대체
+    if (selectedObject && !moveState && !resizeState) {
       const obj = selectedObject;
-      const sx = obj.startCol * cellW;
-      const sy = obj.startRow * cellH;
-      const sw = (obj.endCol - obj.startCol + 1) * cellW;
-      const sh = (obj.endRow - obj.startRow + 1) * cellH;
+      const sx  = obj.startCol * cellW;
+      const sy  = obj.startRow * cellH;
+      const sw  = (obj.endCol - obj.startCol + 1) * cellW;
+      const sh  = (obj.endRow - obj.startRow + 1) * cellH;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth   = 2;
       ctx.setLineDash([6, 3]);
@@ -222,7 +370,41 @@
       ctx.setLineDash([]);
     }
 
-    // 드래그 선택 하이라이트
+    // 이동 프리뷰
+    if (moveState) {
+      const { previewStartCol:psc, previewStartRow:psr,
+              previewEndCol:pec,   previewEndRow:per, valid, obj } = moveState;
+      const x = psc * cellW, y = psr * cellH;
+      const w = (pec - psc + 1) * cellW, h = (per - psr + 1) * cellH;
+      ctx.globalAlpha = valid ? 0.7 : 0.4;
+      ctx.fillStyle   = valid ? obj.color : '#ff3333';
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.setLineDash([]);
+    }
+
+    // 크기 조절 프리뷰
+    if (resizeState) {
+      const { previewStartCol:psc, previewStartRow:psr,
+              previewEndCol:pec,   previewEndRow:per, valid, obj } = resizeState;
+      const x = psc * cellW, y = psr * cellH;
+      const w = (pec - psc + 1) * cellW, h = (per - psr + 1) * cellH;
+      ctx.globalAlpha = valid ? 0.7 : 0.4;
+      ctx.fillStyle   = valid ? obj.color : '#ff3333';
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.setLineDash([]);
+    }
+
+    // 드래그 선택 하이라이트 (새 객체 생성용)
     if (dragState) {
       const sel      = getSelectionRect(dragState, cfg);
       const x        = sel.sc * cellW;
@@ -246,20 +428,13 @@
     ctx.setLineDash([]);
     for (let i = 0; i <= cfg.cols; i++) {
       const x = Math.floor(i * cellW) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasH);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvasH); ctx.stroke();
     }
     for (let j = 0; j <= cfg.rows; j++) {
       const y = Math.floor(j * cellH) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasW, y);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvasW, y); ctx.stroke();
     }
 
-    // 격자 정보 텍스트
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.font      = '11px Segoe UI, sans-serif';
     ctx.fillText(`${cfg.cols}×${cfg.rows}  |  ${cfg.w}×${cfg.h}`, 8, 16);
@@ -274,7 +449,13 @@
     dragState      = null;
     isDragging     = false;
     selectedObject = null;
+    moveState      = null;
+    resizeState    = null;
+    multiSelection.clear();
+    history        = [];
     propertyPanel.classList.add('hidden');
+    panelMultiInfo.classList.add('hidden');
+    panelSingleContent.classList.remove('hidden');
 
     displayProjectName.value = name;
     enableProjectButtons();
@@ -301,6 +482,7 @@
     // 겹침 차단
     if (overlapsAnyObject(sel.sc, sel.sr, sel.ec, sel.er)) return;
 
+    pushHistory();
     const color = nextAvailableColor();
 
     const obj = {
@@ -460,30 +642,106 @@
     initProject(name, cfg);
   });
 
-  // 캔버스: 클릭 처리 (객체 선택 또는 드래그 시작)
+  // 캔버스: 클릭 처리 (선택·이동·크기조절·다중선택·드래그)
   gridCanvas.addEventListener('mousedown', (e) => {
     if (!projectCreated || e.button !== 0) return;
     const { col, row } = getCellFromMouse(e, currentConfig);
     const clicked = objectAtCell(col, row);
-    if (clicked) {
-      // 객체 클릭 → 선택 (다른 객체면 패널 전환)
-      selectObject(clicked);
+
+    // Shift+클릭: 다중 선택 토글
+    if (e.shiftKey) {
+      if (clicked) toggleMultiSelect(clicked);
       return;
     }
+
+    if (clicked) {
+      clearMultiSelection();
+      if (clicked !== selectedObject) selectObject(clicked);
+      // 가장자리 → 크기 조절 시작
+      const edge = getEdgeAtMouse(e, clicked, currentConfig);
+      if (edge) {
+        resizeState = {
+          obj: clicked, edge,
+          origStartCol: clicked.startCol, origStartRow: clicked.startRow,
+          origEndCol:   clicked.endCol,   origEndRow:   clicked.endRow,
+          startMouseCol: col, startMouseRow: row,
+          previewStartCol: clicked.startCol, previewStartRow: clicked.startRow,
+          previewEndCol:   clicked.endCol,   previewEndRow:   clicked.endRow,
+          valid: true
+        };
+      } else {
+        // 내부 → 이동 시작
+        moveState = {
+          obj: clicked,
+          origStartCol: clicked.startCol, origStartRow: clicked.startRow,
+          origEndCol:   clicked.endCol,   origEndRow:   clicked.endRow,
+          startMouseCol: col, startMouseRow: row,
+          previewStartCol: clicked.startCol, previewStartRow: clicked.startRow,
+          previewEndCol:   clicked.endCol,   previewEndRow:   clicked.endRow,
+          valid: true
+        };
+      }
+      return;
+    }
+
     // 빈 셀 클릭 → 선택 해제 + 드래그 시작
     if (selectedObject) deselectObject();
+    clearMultiSelection();
     isDragging = true;
     dragState  = { startCol: col, startRow: row, endCol: col, endRow: row };
     renderCanvas(currentConfig);
   });
 
-  // 캔버스: 드래그 중
+  // 캔버스: 마우스 이동 (이동·크기조절·커서·드래그)
   gridCanvas.addEventListener('mousemove', (e) => {
     if (!projectCreated || !currentConfig) return;
     const { col, row } = getCellFromMouse(e, currentConfig);
-    // 커서 스타일
-    gridCanvas.style.cursor = objectAtCell(col, row) ? 'pointer' : 'crosshair';
-    // 드래그 선택 업데이트
+
+    // 이동 상태 업데이트
+    if (moveState) {
+      const dc = col - moveState.startMouseCol;
+      const dr = row - moveState.startMouseRow;
+      const clampedDC = Math.max(-moveState.origStartCol,
+                          Math.min(currentConfig.cols - 1 - moveState.origEndCol, dc));
+      const clampedDR = Math.max(-moveState.origStartRow,
+                          Math.min(currentConfig.rows - 1 - moveState.origEndRow, dr));
+      moveState.previewStartCol = moveState.origStartCol + clampedDC;
+      moveState.previewStartRow = moveState.origStartRow + clampedDR;
+      moveState.previewEndCol   = moveState.origEndCol   + clampedDC;
+      moveState.previewEndRow   = moveState.origEndRow   + clampedDR;
+      moveState.valid = !overlapsOtherObjects(
+        moveState.previewStartCol, moveState.previewStartRow,
+        moveState.previewEndCol,   moveState.previewEndRow,
+        moveState.obj.id
+      );
+      gridCanvas.style.cursor = 'grabbing';
+      renderCanvas(currentConfig);
+      return;
+    }
+
+    // 크기 조절 상태 업데이트
+    if (resizeState) {
+      const dc = col - resizeState.startMouseCol;
+      const dr = row - resizeState.startMouseRow;
+      const { sc, sr, ec, er } = computeResizeBounds(resizeState, dc, dr, currentConfig);
+      resizeState.previewStartCol = sc; resizeState.previewStartRow = sr;
+      resizeState.previewEndCol   = ec; resizeState.previewEndRow   = er;
+      resizeState.valid = !overlapsOtherObjects(sc, sr, ec, er, resizeState.obj.id);
+      gridCanvas.style.cursor = EDGE_CURSORS[resizeState.edge];
+      renderCanvas(currentConfig);
+      return;
+    }
+
+    // 커서 스타일 (hover)
+    const hovered = objectAtCell(col, row);
+    if (selectedObject && hovered === selectedObject) {
+      const edge = getEdgeAtMouse(e, selectedObject, currentConfig);
+      gridCanvas.style.cursor = edge ? EDGE_CURSORS[edge] : 'grab';
+    } else {
+      gridCanvas.style.cursor = hovered ? 'pointer' : 'crosshair';
+    }
+
+    // 드래그 선택 업데이트 (새 객체 생성)
     if (isDragging && dragState) {
       dragState.endCol = col;
       dragState.endRow = row;
@@ -491,14 +749,37 @@
     }
   });
 
-  // 캔버스: 드래그 완료 (선택 유지)
-  gridCanvas.addEventListener('mouseup', () => {
-    isDragging = false;
-  });
-
-  // 캔버스 밖에서 마우스 업 시에도 드래그 종료
+  // 마우스 업: 이동·크기조절 확정 또는 취소
   window.addEventListener('mouseup', () => {
     isDragging = false;
+
+    if (moveState && projectCreated) {
+      const { previewStartCol:psc, previewStartRow:psr, valid } = moveState;
+      const changed = psc !== moveState.origStartCol || psr !== moveState.origStartRow;
+      if (changed && valid) {
+        pushHistory();
+        moveState.obj.startCol = moveState.previewStartCol;
+        moveState.obj.startRow = moveState.previewStartRow;
+        moveState.obj.endCol   = moveState.previewEndCol;
+        moveState.obj.endRow   = moveState.previewEndRow;
+      }
+      moveState = null;
+      renderCanvas(currentConfig);
+    }
+
+    if (resizeState && projectCreated) {
+      const { previewStartCol:psc, previewStartRow:psr,
+              previewEndCol:pec,   previewEndRow:per, valid } = resizeState;
+      const changed = psc !== resizeState.origStartCol || psr !== resizeState.origStartRow ||
+                      pec !== resizeState.origEndCol   || per !== resizeState.origEndRow;
+      if (changed && valid) {
+        pushHistory();
+        resizeState.obj.startCol = psc; resizeState.obj.startRow = psr;
+        resizeState.obj.endCol   = pec; resizeState.obj.endRow   = per;
+      }
+      resizeState = null;
+      renderCanvas(currentConfig);
+    }
   });
 
   // 객체 생성 버튼
@@ -506,22 +787,43 @@
     createObjectFromSelection();
   });
 
-  // 키보드: Enter → 객체 생성, Escape → 드래그 취소 또는 선택 해제
+  // 키보드
   document.addEventListener('keydown', (e) => {
-    // input/textarea에서 Enter는 차단 (객체 생성 방지), ESC는 허용
     if (e.key === 'Enter' && e.target.matches('input, textarea')) return;
-    if (e.key === 'Enter' && projectCreated) {
-      createObjectFromSelection();
-    }
+
+    // Enter → 객체 생성
+    if (e.key === 'Enter' && projectCreated) createObjectFromSelection();
+
+    // Escape → 취소 순서대로
     if (e.key === 'Escape') {
-      if (dragState) {
-        dragState  = null;
-        isDragging = false;
-        renderCanvas(currentConfig);
+      if (moveState)    { moveState = null;   renderCanvas(currentConfig); }
+      else if (resizeState) { resizeState = null; renderCanvas(currentConfig); }
+      else if (dragState) {
+        dragState  = null; isDragging = false; renderCanvas(currentConfig);
       } else if (selectedObject) {
         deselectObject();
+      } else if (multiSelection.size > 0) {
+        clearMultiSelection();
+        propertyPanel.classList.add('hidden');
       }
     }
+
+    // Delete → 선택 객체 삭제
+    if (e.key === 'Delete' && !e.target.matches('input, textarea') && projectCreated) {
+      if (multiSelection.size > 0) deleteMultiSelection();
+      else if (selectedObject)     deleteSelectedObject();
+    }
+
+    // Ctrl+Z → Undo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && projectCreated) {
+      e.preventDefault();
+      undo();
+    }
+  });
+
+  // 속성 패널: 다중 선택 일괄 삭제
+  document.getElementById('panel-btn-multi-delete').addEventListener('click', () => {
+    deleteMultiSelection();
   });
 
   // 속성 패널: 이름 변경

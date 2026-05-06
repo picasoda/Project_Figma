@@ -359,3 +359,24 @@
   .panel-btn-danger:hover { background: #6a1a1a; border-color: #f66; }
   .panel-btn-secondary { background: #2a2a4a; color: #ccc; }
   .panel-btn-secondary:hover { background: #3a3a6a; }
+
+  /* 단일/다중 선택 레이아웃 */
+  #panel-single-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+  }
+  #panel-multi-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  #panel-multi-info.hidden { display: none; }
+  .panel-multi-count {
+    font-size: 13px;
+    color: #aaa;
+    text-align: center;
+    padding: 12px 0;
+  }

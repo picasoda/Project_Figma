@@ -38,23 +38,32 @@
   <div id="property-panel" class="hidden">
     <div class="panel-title">속성</div>
 
-    <div class="panel-group">
-      <label class="panel-label">이름 (Label)</label>
-      <input class="panel-input" id="panel-label" type="text" placeholder="객체 이름" />
+    <!-- 다중 선택 상태 -->
+    <div id="panel-multi-info" class="hidden">
+      <span id="panel-multi-count" class="panel-multi-count"></span>
+      <button class="panel-btn panel-btn-danger" id="panel-btn-multi-delete">일괄 삭제</button>
     </div>
 
-    <div class="panel-group">
-      <label class="panel-label">설명 (Description)</label>
-      <textarea class="panel-input panel-textarea" id="panel-description" placeholder="AI 프롬프트에 사용될 설명"></textarea>
-    </div>
+    <!-- 단일 선택 상태 -->
+    <div id="panel-single-content">
+      <div class="panel-group">
+        <label class="panel-label">이름 (Label)</label>
+        <input class="panel-input" id="panel-label" type="text" placeholder="객체 이름" />
+      </div>
 
-    <div class="panel-group">
-      <label class="panel-label">색상</label>
-      <div class="panel-palette" id="panel-palette"></div>
-    </div>
+      <div class="panel-group">
+        <label class="panel-label">설명 (Description)</label>
+        <textarea class="panel-input panel-textarea" id="panel-description" placeholder="AI 프롬프트에 사용될 설명"></textarea>
+      </div>
 
-    <div class="panel-footer">
-      <button class="panel-btn panel-btn-danger" id="panel-btn-delete">삭제</button>
+      <div class="panel-group">
+        <label class="panel-label">색상</label>
+        <div class="panel-palette" id="panel-palette"></div>
+      </div>
+
+      <div class="panel-footer">
+        <button class="panel-btn panel-btn-danger" id="panel-btn-delete">삭제</button>
+      </div>
     </div>
   </div>
 </div>
