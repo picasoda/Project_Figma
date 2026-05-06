@@ -23,6 +23,7 @@
   let usedColors     = new Set(); // 사용 중인 팔레트 색상
   let dragState      = null;      // { startCol, startRow, endCol, endRow }
   let isDragging     = false;     // 마우스 버튼 누름 상태
+  let selectedObject = null;      // 현재 선택된 객체
 
   // ===== DOM =====
   const createModal        = document.getElementById('create-modal');
@@ -38,6 +39,10 @@
   const displayProjectName = document.getElementById('display-project-name');
   const gridCanvas         = document.getElementById('grid-canvas');
   const ctx                = gridCanvas.getContext('2d');
+  const propertyPanel      = document.getElementById('property-panel');
+  const panelLabelInput    = document.getElementById('panel-label');
+  const panelDescInput     = document.getElementById('panel-description');
+  const panelPaletteEl     = document.getElementById('panel-palette');
 
   // 프로젝트 생성 후 활성화할 버튼들
   const projectButtons = [
@@ -96,6 +101,64 @@
     ) || null;
   }
 
+  // ===== 객체 선택·패널 =====
+
+  // 객체 선택: 하이라이트 + 패널 열기
+  function selectObject(obj) {
+    selectedObject = obj;
+    dragState      = null;
+    isDragging     = false;
+    renderCanvas(currentConfig);
+    openPropertyPanel(obj);
+  }
+
+  // 선택 해제: 하이라이트 제거 + 패널 닫기
+  function deselectObject() {
+    selectedObject = null;
+    propertyPanel.classList.add('hidden');
+    renderCanvas(currentConfig);
+  }
+
+  // 속성 패널 열기 (필드 채우기)
+  function openPropertyPanel(obj) {
+    panelLabelInput.value = obj.label;
+    panelDescInput.value  = obj.description;
+    renderPaletteSwatches(obj);
+    propertyPanel.classList.remove('hidden');
+  }
+
+  // 팔레트 스와치 렌더링
+  function renderPaletteSwatches(obj) {
+    panelPaletteEl.innerHTML = '';
+    PALETTE.forEach(color => {
+      const swatch = document.createElement('div');
+      swatch.className = 'palette-swatch';
+      swatch.style.backgroundColor = color;
+      if (color === obj.color) swatch.classList.add('selected');
+      swatch.addEventListener('click', () => {
+        if (!selectedObject) return;
+        const old = selectedObject.color;
+        selectedObject.color = color;
+        usedColors.delete(old);
+        usedColors.add(color);
+        renderCanvas(currentConfig);
+        renderPaletteSwatches(selectedObject);
+      });
+      panelPaletteEl.appendChild(swatch);
+    });
+  }
+
+  // 선택 객체 삭제 (색상 반환)
+  function deleteSelectedObject() {
+    if (!selectedObject) return;
+    usedColors.delete(selectedObject.color);
+    objects = objects.filter(o => o.id !== selectedObject.id);
+    selectedObject = null;
+    propertyPanel.classList.add('hidden');
+    renderCanvas(currentConfig);
+    updateObjectBar();
+  }
+
   // ===== 캔버스 크기 설정 (리사이즈·초기화 시) =====
   function resizeCanvas(cfg) {
     const canvasArea = document.getElementById('canvas-area');
@@ -144,6 +207,20 @@
       ctx.setLineDash([]);
       ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
     });
+
+    // 선택된 객체 하이라이트 (흰 점선 테두리)
+    if (selectedObject) {
+      const obj = selectedObject;
+      const sx = obj.startCol * cellW;
+      const sy = obj.startRow * cellH;
+      const sw = (obj.endCol - obj.startCol + 1) * cellW;
+      const sh = (obj.endRow - obj.startRow + 1) * cellH;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
+      ctx.setLineDash([]);
+    }
 
     // 드래그 선택 하이라이트
     if (dragState) {
@@ -196,6 +273,8 @@
     usedColors     = new Set();
     dragState      = null;
     isDragging     = false;
+    selectedObject = null;
+    propertyPanel.classList.add('hidden');
 
     displayProjectName.value = name;
     enableProjectButtons();
@@ -381,11 +460,18 @@
     initProject(name, cfg);
   });
 
-  // 캔버스: 드래그 시작
+  // 캔버스: 클릭 처리 (객체 선택 또는 드래그 시작)
   gridCanvas.addEventListener('mousedown', (e) => {
     if (!projectCreated || e.button !== 0) return;
     const { col, row } = getCellFromMouse(e, currentConfig);
-    if (objectAtCell(col, row)) return; // 객체 위 클릭은 무시 (3단계에서 처리)
+    const clicked = objectAtCell(col, row);
+    if (clicked) {
+      // 객체 클릭 → 선택 (다른 객체면 패널 전환)
+      selectObject(clicked);
+      return;
+    }
+    // 빈 셀 클릭 → 선택 해제 + 드래그 시작
+    if (selectedObject) deselectObject();
     isDragging = true;
     dragState  = { startCol: col, startRow: row, endCol: col, endRow: row };
     renderCanvas(currentConfig);
@@ -420,17 +506,37 @@
     createObjectFromSelection();
   });
 
-  // 키보드: Enter → 객체 생성, Escape → 선택 해제
+  // 키보드: Enter → 객체 생성, Escape → 드래그 취소 또는 선택 해제
   document.addEventListener('keydown', (e) => {
-    if (e.target.matches('input, textarea')) return;
+    // input/textarea에서 Enter는 차단 (객체 생성 방지), ESC는 허용
+    if (e.key === 'Enter' && e.target.matches('input, textarea')) return;
     if (e.key === 'Enter' && projectCreated) {
       createObjectFromSelection();
     }
-    if (e.key === 'Escape' && dragState) {
-      dragState  = null;
-      isDragging = false;
-      renderCanvas(currentConfig);
+    if (e.key === 'Escape') {
+      if (dragState) {
+        dragState  = null;
+        isDragging = false;
+        renderCanvas(currentConfig);
+      } else if (selectedObject) {
+        deselectObject();
+      }
     }
+  });
+
+  // 속성 패널: 이름 변경
+  panelLabelInput.addEventListener('input', () => {
+    if (selectedObject) selectedObject.label = panelLabelInput.value;
+  });
+
+  // 속성 패널: 설명 변경
+  panelDescInput.addEventListener('input', () => {
+    if (selectedObject) selectedObject.description = panelDescInput.value;
+  });
+
+  // 속성 패널: 삭제
+  document.getElementById('panel-btn-delete').addEventListener('click', () => {
+    deleteSelectedObject();
   });
 
   // 단축키 버튼 (8단계 구현 예정)

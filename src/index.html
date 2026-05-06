@@ -33,6 +33,30 @@
     <span id="empty-msg">+ 새파일 버튼을 눌러 프로젝트를 시작하세요</span>
     <canvas id="grid-canvas"></canvas>
   </div>
+
+  <!-- 속성 패널 -->
+  <div id="property-panel" class="hidden">
+    <div class="panel-title">속성</div>
+
+    <div class="panel-group">
+      <label class="panel-label">이름 (Label)</label>
+      <input class="panel-input" id="panel-label" type="text" placeholder="객체 이름" />
+    </div>
+
+    <div class="panel-group">
+      <label class="panel-label">설명 (Description)</label>
+      <textarea class="panel-input panel-textarea" id="panel-description" placeholder="AI 프롬프트에 사용될 설명"></textarea>
+    </div>
+
+    <div class="panel-group">
+      <label class="panel-label">색상</label>
+      <div class="panel-palette" id="panel-palette"></div>
+    </div>
+
+    <div class="panel-footer">
+      <button class="panel-btn panel-btn-danger" id="panel-btn-delete">삭제</button>
+    </div>
+  </div>
 </div>
 
 <!-- 하단 바 (항상 보임) -->

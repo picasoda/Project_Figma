@@ -288,3 +288,74 @@
   .float-msg-btn.primary { background: #4a4aaa; color: #fff; border-color: #66f; }
   .float-msg-btn.secondary { background: #2a2a4a; color: #ccc; }
   .float-msg-btn.ghost { background: transparent; color: #888; border-color: #555; }
+
+  /* ===== 속성 패널 ===== */
+  #property-panel {
+    width: 240px;
+    background: #16213e;
+    border-left: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 14px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  #property-panel.hidden { display: none; }
+  .panel-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #333;
+  }
+  .panel-group { display: flex; flex-direction: column; gap: 6px; }
+  .panel-label { font-size: 11px; color: #888; }
+  .panel-input {
+    width: 100%;
+    background: #2a2a4a;
+    border: 1px solid #444;
+    color: #e0e0e0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .panel-input:focus { border-color: #88f; outline: none; }
+  .panel-textarea { height: 72px; resize: none; }
+  .panel-palette {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .palette-swatch {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .palette-swatch:hover { border-color: #fff; transform: scale(1.1); }
+  .palette-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px #88f; }
+  .panel-footer {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid #333;
+  }
+  .panel-btn {
+    flex: 1;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .panel-btn-danger { background: #4a1a1a; color: #f88; border-color: #633; }
+  .panel-btn-danger:hover { background: #6a1a1a; border-color: #f66; }
+  .panel-btn-secondary { background: #2a2a4a; color: #ccc; }
+  .panel-btn-secondary:hover { background: #3a3a6a; }
