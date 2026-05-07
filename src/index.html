@@ -34,6 +34,12 @@
     <canvas id="grid-canvas"></canvas>
   </div>
 
+  <!-- 객체 목록 패널 -->
+  <div id="object-list-panel" class="hidden">
+    <div class="list-panel-header">목록</div>
+    <div id="object-list"></div>
+  </div>
+
   <!-- 속성 패널 -->
   <div id="property-panel" class="hidden">
     <div class="panel-title">속성</div>
@@ -56,7 +62,7 @@
         <textarea class="panel-input panel-textarea" id="panel-description" placeholder="AI 프롬프트에 사용될 설명"></textarea>
       </div>
 
-      <div class="panel-group">
+      <div class="panel-group" id="panel-color-group">
         <label class="panel-label">색상</label>
         <div class="panel-palette" id="panel-palette"></div>
       </div>
@@ -152,6 +158,81 @@
     <button class="float-msg-btn primary" id="btn-float-save">저장 후 만들기</button>
     <button class="float-msg-btn secondary" id="btn-float-discard">그냥 만들기</button>
     <button class="float-msg-btn ghost" id="btn-float-cancel">취소</button>
+  </div>
+</div>
+
+<!-- 단축키 안내 패널 -->
+<div id="shortcuts-panel" class="hidden">
+  <div class="shortcuts-header">
+    <span class="shortcuts-title">단축키</span>
+    <button class="shortcuts-close-btn" id="btn-shortcuts-close">✕</button>
+  </div>
+  <table class="shortcuts-table">
+    <tbody>
+      <tr><td>Ctrl+Z</td><td>실행 취소</td></tr>
+      <tr><td>Ctrl+S</td><td>저장</td></tr>
+      <tr><td>Enter</td><td>객체 생성</td></tr>
+      <tr><td>Delete</td><td>선택 삭제</td></tr>
+      <tr><td>Escape</td><td>선택 해제 / 취소</td></tr>
+      <tr><td>G</td><td>격자선 토글</td></tr>
+      <tr><td>Shift+클릭</td><td>다중 선택</td></tr>
+      <tr><td>Ctrl+휠</td><td>줌 인/아웃</td></tr>
+      <tr><td>휠클릭+드래그</td><td>캔버스 팬</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 숨겨진 파일 선택기 -->
+<input type="file" id="file-input" accept=".json" style="display:none">
+
+<!-- 덮어쓰기 확인 모달 -->
+<div id="overwrite-modal" class="modal-overlay hidden">
+  <div class="modal modal-sm">
+    <div class="modal-title">덮어쓰기 확인</div>
+    <p class="modal-desc">기존 프로젝트가 있습니다. 불러온 파일로 덮어쓰시겠습니까?</p>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" id="btn-overwrite-cancel">취소</button>
+      <button class="modal-btn modal-btn-primary" id="btn-overwrite-confirm">덮어쓰기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 복원 확인 모달 -->
+<div id="restore-modal" class="modal-overlay hidden">
+  <div class="modal modal-sm">
+    <div class="modal-title">이전 작업 복원</div>
+    <p class="modal-desc">자동 저장된 프로젝트 "<span id="restore-modal-name"></span>"을 복원하시겠습니까?</p>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" id="btn-restore-cancel">취소</button>
+      <button class="modal-btn modal-btn-primary" id="btn-restore-confirm">복원</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export 모달 -->
+<div id="export-modal" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-title">🚀 Export</div>
+
+    <div class="export-preview-section">
+      <div class="export-section-label">프리뷰</div>
+      <div class="export-canvas-wrap" id="prev-canvas-wrap">
+        <img id="prev-preview-img" alt="프리뷰" />
+      </div>
+      <button class="modal-btn modal-btn-primary export-dl-btn" id="btn-dl-prev">💾 PNG 다운로드</button>
+    </div>
+
+    <div class="export-prompt-section">
+      <div class="export-prompt-header">
+        <span class="export-section-label">프롬프트</span>
+        <button class="modal-btn modal-btn-cancel export-copy-btn" id="btn-copy-prompt">📋 클립보드 복사</button>
+      </div>
+      <textarea class="export-prompt-area" id="export-prompt-text" spellcheck="false"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" id="btn-export-close">닫기</button>
+    </div>
   </div>
 </div>
 
