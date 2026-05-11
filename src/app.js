@@ -983,8 +983,8 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.matches('input, textarea')) return;
 
-    // Enter → 객체 생성
-    if (e.key === 'Enter' && projectCreated) createObjectFromSelection();
+    // R → 객체 생성
+    if (e.key === 'r' && !e.target.matches('input, textarea') && projectCreated) createObjectFromSelection();
 
     // Escape → 취소 순서대로
     if (e.key === 'Escape') {
@@ -1094,7 +1094,7 @@
   });
 
   // 단축키 패널
-  const shortcutsPanel = document.getElementById('shortcuts-panel');
+  const shortcutsPanel  = document.getElementById('shortcuts-panel');
   let shortcutsPanelOpen = false;
 
   function openShortcutsPanel() {
@@ -1106,15 +1106,49 @@
     shortcutsPanel.classList.add('hidden');
   }
 
+  // 툴바 버튼 → 패널 토글
   document.getElementById('btn-shortcuts').addEventListener('click', (e) => {
     e.stopPropagation();
     shortcutsPanelOpen ? closeShortcutsPanel() : openShortcutsPanel();
   });
+
+  // X 버튼 → 패널 닫기
   document.getElementById('btn-shortcuts-close').addEventListener('click', (e) => {
     e.stopPropagation();
     closeShortcutsPanel();
   });
+
+  // 헤더 드래그로 패널 이동 (X 버튼 클릭은 제외)
+  shortcutsPanel.querySelector('.shortcuts-header').addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = shortcutsPanel.getBoundingClientRect();
+    // right-based CSS → left-based inline으로 전환
+    shortcutsPanel.style.left  = rect.left + 'px';
+    shortcutsPanel.style.top   = rect.top  + 'px';
+    shortcutsPanel.style.right = 'auto';
+    panelDragState = { startMouseX: e.clientX, startMouseY: e.clientY,
+                       startLeft: rect.left,   startTop: rect.top };
+    panelDragged = false;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!panelDragState) return;
+    const dx = e.clientX - panelDragState.startMouseX;
+    const dy = e.clientY - panelDragState.startMouseY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) panelDragged = true;
+    shortcutsPanel.style.left = (panelDragState.startLeft + dx) + 'px';
+    shortcutsPanel.style.top  = (panelDragState.startTop  + dy) + 'px';
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0 && panelDragState) panelDragState = null;
+  });
+
+  // 외부 클릭 → 닫기 (드래그 후 클릭은 제외)
   document.addEventListener('click', (e) => {
+    if (panelDragged) { panelDragged = false; return; }
     if (shortcutsPanelOpen &&
         !shortcutsPanel.contains(e.target) &&
         e.target.id !== 'btn-shortcuts') {

@@ -503,6 +503,8 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+  cursor: move;
+  user-select: none;
 }
 .shortcuts-title {
   color: #e0e0e0;
@@ -533,4 +535,7 @@
   font-weight: bold;
   white-space: nowrap;
   padding-right: 16px;
+}
+.hidden {
+  display: none !important;
 }
