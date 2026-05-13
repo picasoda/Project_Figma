@@ -1,5 +1,5 @@
 # GridFrame
-격자 기반 레이아웃 스케치 → AI 세그멘테이션 맵 + 프롬프트 자동 생성 웹 툴
+격자 기반 레이아웃 스케치 → 프리뷰 + 프롬프트 자동 생성 웹 툴
 
 ## Tech
 Pure HTML/CSS/JS, Canvas API, no frameworks
@@ -14,20 +14,16 @@ Files: index.html, style.css, app.js
 6. 기존 기능을 절대 깨뜨리지 않기
 
 ## Code Rules
-- English identifiers, Korean comments
-- DOM 접근은 id 사용
-- 변수·함수명은 camelCase
-- 한 함수는 한 가지 역할만
+- 식별자 영어, 주석 한국어, 변수·함수 camelCase
+- DOM 접근은 id, 한 함수 한 가지 역할
 
 ## 수정 권한
 - docs/todo.md: 체크 [x] 및 ← 현재 이동만 허용
-- CLAUDE.md: "MD 변경 필요사항" 섹션에 항목 추가만 허용, 그 외 수정 금지
-- .claude/rules/*.md, docs/features.md: 절대 수정 금지
-
-## MD 변경 필요사항 (사용자 확인 전용)
-> **자동 기록 규칙**: 작업 중에 참조한 MD 파일의
-> 내용이 현재 구현과 맞지 않거나, 누락·추가·수정이 필요하다고
-> 판단되면 이 섹션에 항목을 추가합니다.
-> 단, 항목을 적는 것만 허용되며 해당 MD 파일을 직접 수정하는 것은 금지합니다.
-
-(현재 없음)
+- CLAUDE.md: 수정 금지(Tech는 수정 가능)
+- .claude/rules/*.md, docs/features.md: 수정 요청 필수
+## 파일 분리 기준
+- js: 500줄 초과 또는 독립 모듈화 가능할 때
+- css: 영역이 명확히 구분될 때 (줄 수 무관)
+- html: 별개 페이지가 생길 때만
+- rules: 독립 기능 도메인이고 기존 파일과 주제가 다를 때
+- 분리·추가 후 Tech > Files 업데이트 필수
