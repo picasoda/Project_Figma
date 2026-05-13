@@ -1,4 +1,4 @@
-# GridFrame 기능 명세(초기 todolist 제작용)
+# GridUI 명세(최소한의 내용)
 
 ## 1. 툴바
 - 파일: 새 파일(프리셋·배율·이름), 프로젝트명 편집, JSON 저장/불러오기, localStorage 자동 저장·복원
@@ -76,3 +76,7 @@
 - 마우스: 좌클릭(선택/패널), 좌클릭+드래그(영역 선택/이동/크기 조절), 휠클릭+드래그(팬)
 - 키+마우스: Ctrl+휠(줌), Shift+클릭(다중 선택)
 - 키보드: R(객체 생성), Delete(삭제), Ctrl+Z(Undo), Ctrl+S(저장), G(격자 토글), ESC(선택 해제)
+
+## 12. 배포
+- URL: https://gridframeui.netlify.app/
+- 플랫폼: Netlify (정적 배포, HTTPS 자동)
