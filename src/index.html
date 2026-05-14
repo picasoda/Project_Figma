@@ -15,7 +15,6 @@
   <input class="tb-project-name" id="display-project-name" value="" placeholder="프로젝트 없음" disabled />
   <div class="tb-divider"></div>
   <button class="tb-btn" id="btn-obj-create" disabled>📦 객체 생성</button>
-  <button class="tb-btn" id="btn-bg-create" disabled>🌄 배경 생성</button>
   <div class="tb-divider"></div>
   <span class="tb-zoom" id="display-zoom">100%</span>
   <button class="tb-btn" id="btn-fit" disabled>⊞ 맞추기</button>
@@ -48,6 +47,7 @@
     <div id="panel-multi-info" class="hidden">
       <span id="panel-multi-count" class="panel-multi-count"></span>
       <button class="panel-btn panel-btn-danger" id="panel-btn-multi-delete">일괄 삭제</button>
+      <button class="panel-btn" id="panel-btn-multi-merge">병합</button>
     </div>
 
     <!-- 단일 선택 상태 -->
@@ -120,8 +120,26 @@
         <button class="scale-btn" id="btn-scale-up">▲</button>
       </div>
       <div class="grid-info">
-        <div class="grid-info-item">격자: <span id="grid-size-display">32열 × 18행</span></div>
+        <div class="grid-info-item grid-size-edit">
+          <span class="grid-size-label">격자:</span>
+          <input type="number" id="grid-cols-input" class="grid-size-input" min="2" max="200" value="48" />
+          <span class="grid-size-sep">열 ×</span>
+          <input type="number" id="grid-rows-input" class="grid-size-input" min="2" max="200" value="27" />
+          <span class="grid-size-sep">행</span>
+        </div>
         <div class="grid-info-item">해상도: <span id="resolution-display">1920 × 1080</span></div>
+      </div>
+    </div>
+
+    <!-- 프리셋 모드: 세로 높이 조절 (Custom 선택 시 숨김) -->
+    <div class="preset-height-row" id="preset-height-row">
+      <div class="custom-field">
+        <label>가로 해상도 (px, 고정)</label>
+        <div class="preset-width-fixed" id="preset-width-label">1920</div>
+      </div>
+      <div class="custom-field">
+        <label>세로 높이 (px)</label>
+        <input type="number" id="preset-height-input" min="100" max="99999" value="3000" />
       </div>
     </div>
 
@@ -133,14 +151,6 @@
       <div class="custom-field">
         <label>세로 해상도 (px)</label>
         <input type="number" id="custom-height" value="1080" min="100" max="4320" />
-      </div>
-      <div class="custom-field">
-        <label>열 수</label>
-        <input type="number" id="custom-cols" value="32" min="2" max="200" />
-      </div>
-      <div class="custom-field">
-        <label>행 수</label>
-        <input type="number" id="custom-rows" value="18" min="2" max="200" />
       </div>
     </div>
 
@@ -172,6 +182,8 @@
       <tr><td>Ctrl+Z</td><td>실행 취소</td></tr>
       <tr><td>Ctrl+S</td><td>저장</td></tr>
       <tr><td>R</td><td>객체 생성</td></tr>
+      <tr><td>D</td><td>선택 영역 도려내기</td></tr>
+      <tr><td>M</td><td>선택 객체 병합</td></tr>
       <tr><td>Delete</td><td>선택 삭제</td></tr>
       <tr><td>Escape</td><td>선택 해제 / 취소</td></tr>
       <tr><td>G</td><td>격자선 토글</td></tr>

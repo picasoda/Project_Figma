@@ -9,15 +9,17 @@
 
   // ===== 프리셋 데이터 =====
   const PRESETS = {
-    desktop: { w: 1920, h: 1080, cols: 48, rows: 27 },
-    tablet:  { w: 768,  h: 1024, cols: 24, rows: 32 },
-    mobile:  { w: 390,  h: 844,  cols: 18, rows: 39 }
+    desktop: { w: 1920, h: 3000, cols: 48, rows: 75 },
+    tablet:  { w: 768,  h: 2800, cols: 24, rows: 88 },
+    mobile:  { w: 390,  h: 2532, cols: 18, rows: 117 }
   };
 
   // ===== 상태 =====
   let currentPreset  = 'desktop';
   let scale          = 1.0;
   let projectCreated = false;
+  let baseCanvasW    = 0;   // 줌=1 기준 캔버스 CSS 너비
+  let baseCanvasH    = 0;
   let currentConfig  = null;
   let objects        = [];        // 생성된 객체 목록
   let usedColors     = new Set(); // 사용 중인 팔레트 색상
@@ -44,9 +46,13 @@
   const inputProjectName   = document.getElementById('input-project-name');
   const createError        = document.getElementById('create-error');
   const scaleValue         = document.getElementById('scale-value');
-  const gridSizeDisplay    = document.getElementById('grid-size-display');
+  const gridColsInput      = document.getElementById('grid-cols-input');
+  const gridRowsInput      = document.getElementById('grid-rows-input');
   const resolutionDisplay  = document.getElementById('resolution-display');
   const customInputs       = document.getElementById('custom-inputs');
+  const presetHeightRow    = document.getElementById('preset-height-row');
+  const presetHeightInput  = document.getElementById('preset-height-input');
+  const presetWidthLabel   = document.getElementById('preset-width-label');
   const displayProjectName = document.getElementById('display-project-name');
   const gridCanvas         = document.getElementById('grid-canvas');
   const ctx                = gridCanvas.getContext('2d');
@@ -61,7 +67,6 @@
   // 프로젝트 생성 후 활성화할 버튼들
   const projectButtons = [
     document.getElementById('btn-obj-create'),
-    document.getElementById('btn-bg-create'),
     document.getElementById('btn-fit'),
     document.getElementById('btn-grid-toggle'),
     document.getElementById('btn-save'),
@@ -70,15 +75,31 @@
 
   // ===== 유틸 =====
   function applyCanvasTransform() {
-    // CSS의 translate(-50%,-50%) 센터링을 인라인 스타일로 덮으므로 항상 포함
+    // 줌은 캔버스 해상도로 처리 → CSS transform은 팬(translate)만 담당
     gridCanvas.style.transform =
-      `translate(calc(-50% + ${viewPanX}px), calc(-50% + ${viewPanY}px)) scale(${viewZoom})`;
+      `translate(calc(-50% + ${viewPanX}px), calc(-50% + ${viewPanY}px))`;
     document.getElementById('display-zoom').textContent =
       Math.round(viewZoom * 100) + '%';
   }
 
+  // 줌·DPR을 반영해 캔버스 픽셀 크기를 갱신 (CSS 크기 = 뷰 크기, 픽셀 크기 = CSS×DPR)
+  function applyCanvasSize() {
+    const dpr  = window.devicePixelRatio || 1;
+    const cssW = Math.round(baseCanvasW * viewZoom);
+    const cssH = Math.round(baseCanvasH * viewZoom);
+    gridCanvas.width        = Math.round(cssW * dpr);
+    gridCanvas.height       = Math.round(cssH * dpr);
+    gridCanvas.style.width  = cssW + 'px';
+    gridCanvas.style.height = cssH + 'px';
+  }
+
   function generateId() {
     return 'obj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  // 복합 객체는 compositeRects, 단순 객체는 바운딩박스 rect 1개 반환
+  function getObjectRects(obj) {
+    return obj.compositeRects || [{ startCol: obj.startCol, startRow: obj.startRow, endCol: obj.endCol, endRow: obj.endRow }];
   }
 
   // 미사용 색상 우선, 모두 사용 시 순환 재사용
@@ -96,12 +117,12 @@
     };
   }
 
-  // 겹침 체크 (bg 제외)
+  // 겹침 체크 (compositeRects 대응)
   function overlapsAnyObject(sc, sr, ec, er) {
     return objects.some(obj =>
-      !obj.isBg &&
-      sc <= obj.endCol && ec >= obj.startCol &&
-      sr <= obj.endRow && er >= obj.startRow
+      getObjectRects(obj).some(r =>
+        sc <= r.endCol && ec >= r.startCol && sr <= r.endRow && er >= r.startRow
+      )
     );
   }
 
@@ -116,29 +137,30 @@
     };
   }
 
-  // 해당 셀에 있는 객체 반환 (위에 그려진 객체 우선, bg 제외)
+  // 해당 셀에 있는 객체 반환 (위에 그려진 객체 우선, compositeRects 대응)
   function objectAtCell(col, row) {
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i];
-      if (obj.isBg) continue;
-      if (col >= obj.startCol && col <= obj.endCol &&
-          row >= obj.startRow && row <= obj.endRow) return obj;
+      if (getObjectRects(obj).some(r =>
+        col >= r.startCol && col <= r.endCol && row >= r.startRow && row <= r.endRow
+      )) return obj;
     }
     return null;
   }
 
-  // 특정 객체를 제외한 겹침 체크 (이동·크기조절용, bg 제외)
+  // 특정 객체를 제외한 겹침 체크 (이동·크기조절용, compositeRects 대응)
   function overlapsOtherObjects(sc, sr, ec, er, excludeId) {
     return objects.some(obj =>
       obj.id !== excludeId &&
-      !obj.isBg &&
-      sc <= obj.endCol && ec >= obj.startCol &&
-      sr <= obj.endRow && er >= obj.startRow
+      getObjectRects(obj).some(r =>
+        sc <= r.endCol && ec >= r.startCol && sr <= r.endRow && er >= r.startRow
+      )
     );
   }
 
-  // 선택된 객체 가장자리 감지 → edge 문자열 반환 (n/s/e/w/nw/ne/sw/se/null)
+  // 선택된 객체 가장자리 감지 → edge 문자열 반환 (n/s/e/w/nw/ne/sw/se/null), 복합 객체는 불가
   function getEdgeAtMouse(e, obj, cfg) {
+    if (obj.compositeRects) return null;
     const rect  = gridCanvas.getBoundingClientRect();
     const cellW = rect.width  / cfg.cols;
     const cellH = rect.height / cfg.rows;
@@ -180,7 +202,13 @@
   // ===== 히스토리 (Undo) =====
 
   function pushHistory() {
-    history.push({ objects: objects.map(o => ({ ...o })), usedColors: new Set(usedColors) });
+    history.push({
+      objects: objects.map(o => ({
+        ...o,
+        compositeRects: o.compositeRects ? o.compositeRects.map(r => ({ ...r })) : undefined
+      })),
+      usedColors: new Set(usedColors)
+    });
     if (history.length > MAX_HISTORY) history.shift();
   }
 
@@ -231,6 +259,42 @@
     panelSingleContent.classList.remove('hidden');
   }
 
+  // 다중 선택 객체들을 하나의 복합 객체로 병합
+  function mergeSelectedObjects() {
+    if (multiSelection.size < 2) return;
+    pushHistory();
+
+    const ids = [...multiSelection];
+    const selectedObjs = objects.filter(o => multiSelection.has(o.id));
+    const baseObj = selectedObjs.find(o => o.id === ids[ids.length - 1]) || selectedObjs[selectedObjs.length - 1];
+
+    const compositeRects = selectedObjs.flatMap(o => getObjectRects(o));
+    const sc = Math.min(...compositeRects.map(r => r.startCol));
+    const sr = Math.min(...compositeRects.map(r => r.startRow));
+    const ec = Math.max(...compositeRects.map(r => r.endCol));
+    const er = Math.max(...compositeRects.map(r => r.endRow));
+
+    selectedObjs.forEach(o => { if (o.id !== baseObj.id) usedColors.delete(o.color); });
+    objects = objects.filter(o => !multiSelection.has(o.id));
+
+    objects.push({
+      id: generateId(),
+      label: baseObj.label,
+      description: baseObj.description,
+      color: baseObj.color,
+      startCol: sc, startRow: sr, endCol: ec, endRow: er,
+      compositeRects
+    });
+
+    multiSelection.clear();
+    panelMultiInfo.classList.add('hidden');
+    panelSingleContent.classList.remove('hidden');
+    propertyPanel.classList.add('hidden');
+    renderCanvas(currentConfig);
+    updateObjectBar();
+    updateObjectList();
+  }
+
   function deleteMultiSelection() {
     if (multiSelection.size === 0) return;
     pushHistory();
@@ -271,14 +335,11 @@
     updateObjectList();
   }
 
-  // 속성 패널 열기 (필드 채우기, bg 객체는 설명만 편집 가능)
+  // 속성 패널 열기 (필드 채우기)
   function openPropertyPanel(obj) {
     panelLabelInput.value    = obj.label;
     panelDescInput.value     = obj.description;
-    panelLabelInput.disabled = !!obj.isBg;
-    const colorGroup = document.getElementById('panel-color-group');
-    if (obj.isBg) colorGroup.classList.add('hidden');
-    else          colorGroup.classList.remove('hidden');
+    panelLabelInput.disabled = false;
     panelMultiInfo.classList.add('hidden');
     panelSingleContent.classList.remove('hidden');
     renderPaletteSwatches(obj);
@@ -310,7 +371,7 @@
   function deleteSelectedObject() {
     if (!selectedObject) return;
     pushHistory();
-    if (!selectedObject.isBg) usedColors.delete(selectedObject.color);
+    usedColors.delete(selectedObject.color);
     objects = objects.filter(o => o.id !== selectedObject.id);
     selectedObject = null;
     propertyPanel.classList.add('hidden');
@@ -319,21 +380,22 @@
     updateObjectList();
   }
 
-  // 캔버스 내 객체 이름 텍스트 렌더링 (자동 축소 → 말줄임)
+  // 캔버스 내 객체 이름 텍스트 렌더링 (자동 축소 → 말줄임, DPR 보정)
   function drawObjectLabel(text, x, y, w, h) {
     if (!text || w < 10 || h < 10) return;
-    const maxW = w - 8;
+    const dpr  = window.devicePixelRatio || 1;
+    const maxW = w - 8 * dpr;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    // 자동 축소: 14→12→10→8px
-    let fs = 14;
-    for (; fs >= 8; fs -= 2) {
+    // 화면 기준 14→12→10→8px, 캔버스 픽셀 = CSS px × DPR
+    let fs = 14 * dpr;
+    for (let base = 14; base >= 8; base -= 2) {
+      fs = base * dpr;
       ctx.font = `bold ${fs}px Segoe UI, sans-serif`;
       if (ctx.measureText(text).width <= maxW) break;
     }
-    fs = Math.max(8, fs);
     ctx.font = `bold ${fs}px Segoe UI, sans-serif`;
-    if (h < fs + 4) return;
+    if (h < fs + 4 * dpr) return;
     // 말줄임
     let display = text;
     if (ctx.measureText(text).width > maxW) {
@@ -344,9 +406,9 @@
       }
       display += '…';
     }
-    ctx.fillStyle   = 'rgba(255,255,255,0.9)';
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur  = 2;
+    ctx.fillStyle   = 'rgba(0,0,0,0.9)';
+    ctx.shadowColor = 'rgba(255,255,255,0.9)';
+    ctx.shadowBlur  = 3 * dpr;
     ctx.fillText(display, x + w / 2, y + h / 2);
     ctx.shadowBlur  = 0;
   }
@@ -357,18 +419,14 @@
     const areaW = canvasArea.clientWidth;
     const areaH = canvasArea.clientHeight;
     const ratio  = cfg.w / cfg.h;
-    let canvasW, canvasH;
     if (areaW / areaH > ratio) {
-      canvasH = Math.floor(areaH * 0.85);
-      canvasW = Math.floor(canvasH * ratio);
+      baseCanvasH = Math.floor(areaH * 0.85);
+      baseCanvasW = Math.floor(baseCanvasH * ratio);
     } else {
-      canvasW = Math.floor(areaW * 0.85);
-      canvasH = Math.floor(canvasW / ratio);
+      baseCanvasW = Math.floor(areaW * 0.85);
+      baseCanvasH = Math.floor(baseCanvasW / ratio);
     }
-    gridCanvas.width        = canvasW;
-    gridCanvas.height       = canvasH;
-    gridCanvas.style.width  = canvasW + 'px';
-    gridCanvas.style.height = canvasH + 'px';
+    applyCanvasSize();
   }
 
   // ===== 캔버스 전체 렌더링 =====
@@ -377,76 +435,95 @@
     const canvasH = gridCanvas.height;
     const cellW   = canvasW / cfg.cols;
     const cellH   = canvasH / cfg.rows;
+    const dpr     = window.devicePixelRatio || 1;  // HiDPI + 줌 보정
+    const lw2     = 2 * dpr;              // 화면 2px 테두리
+    const lw1     = 1 * dpr;              // 화면 1px 격자선
+    const dash6   = [6 * dpr, 3 * dpr];
+    const dash5   = [5 * dpr, 4 * dpr];
 
     // 배경
-    ctx.fillStyle = '#2a2a3a';
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvasW, canvasH);
 
     // 이동·크기조절 중인 객체 ID (해당 객체는 별도 프리뷰로 렌더링)
     const activeId = moveState ? moveState.obj.id : (resizeState ? resizeState.obj.id : null);
 
-    // 일반 객체 렌더링 (활성 객체 제외, 배경 객체는 더 투명)
+    // 일반 객체 렌더링 (활성 객체 제외, compositeRects 대응)
     objects.forEach(obj => {
       if (obj.id === activeId) return;
-      const x = obj.startCol * cellW;
-      const y = obj.startRow * cellH;
-      const w = (obj.endCol - obj.startCol + 1) * cellW;
-      const h = (obj.endRow - obj.startRow + 1) * cellH;
-      ctx.globalAlpha = obj.isBg ? 0.3 : 0.55;
-      ctx.fillStyle   = obj.color;
-      ctx.fillRect(x, y, w, h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = obj.color;
-      ctx.lineWidth   = obj.isBg ? 1 : 2;
-      ctx.setLineDash([]);
-      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      getObjectRects(obj).forEach(r => {
+        const x = r.startCol * cellW;
+        const y = r.startRow * cellH;
+        const w = (r.endCol - r.startCol + 1) * cellW;
+        const h = (r.endRow - r.startRow + 1) * cellH;
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle   = obj.color;
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = obj.color;
+        ctx.lineWidth   = lw2;
+        ctx.setLineDash([]);
+        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+      });
     });
 
-    // 다중 선택 하이라이트 (청록색 점선)
+    // 다중 선택 하이라이트 (청록색 점선, compositeRects 대응)
     if (multiSelection.size > 0) {
       objects.forEach(obj => {
         if (!multiSelection.has(obj.id)) return;
-        const x = obj.startCol * cellW;
-        const y = obj.startRow * cellH;
-        const w = (obj.endCol - obj.startCol + 1) * cellW;
-        const h = (obj.endRow - obj.startRow + 1) * cellH;
-        ctx.strokeStyle = '#00ffff';
-        ctx.lineWidth   = 2;
-        ctx.setLineDash([5, 4]);
-        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        getObjectRects(obj).forEach(r => {
+          const x = r.startCol * cellW;
+          const y = r.startRow * cellH;
+          const w = (r.endCol - r.startCol + 1) * cellW;
+          const h = (r.endRow - r.startRow + 1) * cellH;
+          ctx.strokeStyle = '#00ffff';
+          ctx.lineWidth   = lw2;
+          ctx.setLineDash(dash5);
+          ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+          ctx.setLineDash([]);
+        });
+      });
+    }
+
+    // 단일 선택 하이라이트 (흰 점선, compositeRects 대응)
+    if (selectedObject && !moveState && !resizeState) {
+      getObjectRects(selectedObject).forEach(r => {
+        const sx = r.startCol * cellW;
+        const sy = r.startRow * cellH;
+        const sw = (r.endCol - r.startCol + 1) * cellW;
+        const sh = (r.endRow - r.startRow + 1) * cellH;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth   = lw2;
+        ctx.setLineDash(dash6);
+        ctx.strokeRect(sx + lw1, sy + lw1, sw - lw2, sh - lw2);
         ctx.setLineDash([]);
       });
     }
 
-    // 단일 선택 하이라이트 (흰 점선) — 이동·크기조절 중에는 프리뷰로 대체
-    if (selectedObject && !moveState && !resizeState) {
-      const obj = selectedObject;
-      const sx  = obj.startCol * cellW;
-      const sy  = obj.startRow * cellH;
-      const sw  = (obj.endCol - obj.startCol + 1) * cellW;
-      const sh  = (obj.endRow - obj.startRow + 1) * cellH;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth   = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
-      ctx.setLineDash([]);
-    }
-
-    // 이동 프리뷰
+    // 이동 프리뷰 (compositeRects 대응: 각 rect 개별 렌더링)
     if (moveState) {
-      const { previewStartCol:psc, previewStartRow:psr,
-              previewEndCol:pec,   previewEndRow:per, valid, obj } = moveState;
-      const x = psc * cellW, y = psr * cellH;
-      const w = (pec - psc + 1) * cellW, h = (per - psr + 1) * cellH;
-      ctx.globalAlpha = valid ? 0.7 : 0.4;
-      ctx.fillStyle   = valid ? obj.color : '#ff3333';
-      ctx.fillRect(x, y, w, h);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
-      ctx.lineWidth   = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-      ctx.setLineDash([]);
+      const { previewStartCol:psc, previewStartRow:psr, valid, obj } = moveState;
+      const dc = psc - moveState.origStartCol;
+      const dr = psr - moveState.origStartRow;
+      const drawRects = moveState.origCompositeRects
+        ? moveState.origCompositeRects.map(r => ({
+            startCol: r.startCol + dc, startRow: r.startRow + dr,
+            endCol:   r.endCol   + dc, endRow:   r.endRow   + dr
+          }))
+        : [{ startCol: psc, startRow: psr, endCol: moveState.previewEndCol, endRow: moveState.previewEndRow }];
+      drawRects.forEach(r => {
+        const x = r.startCol * cellW, y = r.startRow * cellH;
+        const w = (r.endCol - r.startCol + 1) * cellW, h = (r.endRow - r.startRow + 1) * cellH;
+        ctx.globalAlpha = valid ? 0.7 : 0.4;
+        ctx.fillStyle   = valid ? obj.color : '#ff3333';
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
+        ctx.lineWidth   = lw2;
+        ctx.setLineDash(dash6);
+        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+        ctx.setLineDash([]);
+      });
     }
 
     // 크기 조절 프리뷰
@@ -460,9 +537,9 @@
       ctx.fillRect(x, y, w, h);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
-      ctx.lineWidth   = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.lineWidth   = lw2;
+      ctx.setLineDash(dash6);
+      ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
       ctx.setLineDash([]);
     }
 
@@ -479,15 +556,15 @@
       ctx.fillRect(x, y, w, h);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = overlaps ? '#ff5555' : '#aaccff';
-      ctx.lineWidth   = 2;
+      ctx.lineWidth   = lw2;
       ctx.setLineDash([]);
-      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
     }
 
-    // 격자선 (showGrid 토글에 따라 조건부 렌더링)
+    // 격자선 (G키 토글, 굵기 줌 자동 보정)
     if (showGrid) {
-      ctx.strokeStyle = '#3a3a5a';
-      ctx.lineWidth   = 1;
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth   = lw1;
       ctx.setLineDash([]);
       for (let i = 0; i <= cfg.cols; i++) {
         const x = Math.floor(i * cellW) + 0.5;
@@ -499,7 +576,7 @@
       }
     }
 
-    // 객체 이름 텍스트 렌더링 (격자선 위에 표시)
+    // 객체 이름 텍스트 (격자선 위에 표시, 줌 자동 보정)
     objects.forEach(obj => {
       if (obj.id === activeId || !obj.label) return;
       const x = obj.startCol * cellW, y = obj.startRow * cellH;
@@ -518,9 +595,9 @@
       drawObjectLabel(obj.label, psc*cellW, psr*cellH, (pec-psc+1)*cellW, (per-psr+1)*cellH);
     }
 
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.font      = '11px Segoe UI, sans-serif';
-    ctx.fillText(`${cfg.cols}×${cfg.rows}  |  ${cfg.w}×${cfg.h}`, 8, 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.font      = `${11 * dpr}px Segoe UI, sans-serif`;
+    ctx.fillText(`${cfg.cols}×${cfg.rows}  |  ${cfg.w}×${cfg.h}`, 8 * dpr, 16 * dpr);
   }
 
   // ===== 프로젝트 초기화 =====
@@ -558,7 +635,7 @@
 
   // ===== 하단 바 업데이트 =====
   function updateObjectBar() {
-    const count = objects.filter(o => !o.isBg).length;
+    const count = objects.length;
     barEmptyMsg.textContent = count === 0 ? '객체 없음' : `객체 ${count}개`;
   }
 
@@ -591,26 +668,22 @@
       // 클릭 → 선택
       item.addEventListener('click', () => selectObject(obj));
 
-      // 드래그 정렬 (bg 객체는 고정)
-      if (!obj.isBg) {
-        item.draggable = true;
-        item.addEventListener('dragstart', e => {
-          e.dataTransfer.setData('text/plain', obj.id);
-          item.classList.add('dragging');
-        });
-        item.addEventListener('dragend', () => {
-          item.classList.remove('dragging');
-          listEl.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over'));
-        });
-      }
+      // 드래그 정렬
+      item.draggable = true;
+      item.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', obj.id);
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        listEl.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over'));
+      });
       item.addEventListener('dragover', e => {
-        if (obj.isBg) return;
         e.preventDefault();
         listEl.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over'));
         item.classList.add('drag-over');
       });
       item.addEventListener('drop', e => {
-        if (obj.isBg) return;
         e.preventDefault();
         const draggedId = e.dataTransfer.getData('text/plain');
         if (draggedId === obj.id) return;
@@ -659,6 +732,61 @@
     updateObjectList();
   }
 
+  // 드래그 선택 영역을 겹치는 객체에서 도려내기
+  function carveOutRegion() {
+    if (!dragState || !projectCreated) return;
+    const { sc: dsc, sr: dsr, ec: dec, er: der } = getSelectionRect(dragState, currentConfig);
+
+    const affected = objects.filter(obj =>
+      getObjectRects(obj).some(r =>
+        dsc <= r.endCol && dec >= r.startCol && dsr <= r.endRow && der >= r.startRow
+      )
+    );
+    if (affected.length === 0) return;
+
+    pushHistory();
+
+    affected.forEach(obj => {
+      const remaining = [];
+      getObjectRects(obj).forEach(r => {
+        // 겹치지 않는 rect는 그대로 유지
+        if (dsc > r.endCol || dec < r.startCol || dsr > r.endRow || der < r.startRow) {
+          remaining.push(r); return;
+        }
+        // 교집합 영역 계산
+        const isc = Math.max(dsc, r.startCol);
+        const isr = Math.max(dsr, r.startRow);
+        const iec = Math.min(dec, r.endCol);
+        const ier = Math.min(der, r.endRow);
+        // 남은 4방향 strip
+        if (isr > r.startRow) remaining.push({ startCol: r.startCol, startRow: r.startRow, endCol: r.endCol, endRow: isr - 1 });
+        if (ier < r.endRow)   remaining.push({ startCol: r.startCol, startRow: ier + 1,    endCol: r.endCol, endRow: r.endRow });
+        if (isc > r.startCol) remaining.push({ startCol: r.startCol, startRow: isr,        endCol: isc - 1,  endRow: ier });
+        if (iec < r.endCol)   remaining.push({ startCol: iec + 1,    startRow: isr,        endCol: r.endCol, endRow: ier });
+      });
+
+      if (remaining.length === 0) {
+        usedColors.delete(obj.color);
+        objects = objects.filter(o => o.id !== obj.id);
+      } else if (remaining.length === 1 && !obj.compositeRects) {
+        obj.startCol = remaining[0].startCol; obj.startRow = remaining[0].startRow;
+        obj.endCol   = remaining[0].endCol;   obj.endRow   = remaining[0].endRow;
+      } else {
+        obj.compositeRects = remaining;
+        obj.startCol = Math.min(...remaining.map(r => r.startCol));
+        obj.startRow = Math.min(...remaining.map(r => r.startRow));
+        obj.endCol   = Math.max(...remaining.map(r => r.endCol));
+        obj.endRow   = Math.max(...remaining.map(r => r.endRow));
+      }
+    });
+
+    dragState  = null;
+    isDragging = false;
+    renderCanvas(currentConfig);
+    updateObjectBar();
+    updateObjectList();
+  }
+
   // ===== 모달 열기/닫기 =====
   function openCreateModal() {
     createModal.classList.remove('hidden');
@@ -668,6 +796,8 @@
     scale         = 1.0;
     currentPreset = 'desktop';
     customInputs.classList.remove('show');
+    presetHeightRow.classList.remove('hidden');
+    presetHeightInput.value = PRESETS['desktop'].h;
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('[data-preset="desktop"]').classList.add('active');
     updateDisplay();
@@ -686,27 +816,34 @@
 
   // ===== 설정값 계산 =====
   function getCurrentConfig() {
+    const cols = Math.max(2, parseInt(gridColsInput.value) || 2);
+    const rows = Math.max(2, parseInt(gridRowsInput.value) || 2);
     if (currentPreset === 'custom') {
       return {
         w:    parseInt(document.getElementById('custom-width').value)  || 1920,
         h:    parseInt(document.getElementById('custom-height').value) || 1080,
-        cols: parseInt(document.getElementById('custom-cols').value)   || 32,
-        rows: parseInt(document.getElementById('custom-rows').value)   || 18
+        cols,
+        rows
       };
     }
     const p = PRESETS[currentPreset];
-    return {
-      w:    p.w,
-      h:    p.h,
-      cols: Math.round(p.cols * scale),
-      rows: Math.round(p.rows * scale)
-    };
+    const h = Math.max(100, parseInt(presetHeightInput.value) || p.h);
+    return { w: p.w, h, cols, rows };
   }
 
   function updateDisplay() {
+    scaleValue.textContent = `×${scale.toFixed(1)}`;
+    if (currentPreset !== 'custom') {
+      const p = PRESETS[currentPreset];
+      const newCols = Math.round(p.cols * scale);
+      const newRows = Math.round(p.rows * scale);
+      gridColsInput.value = newCols;
+      gridRowsInput.value = newRows;
+      gridColsInput.dataset.prev = newCols;
+      gridRowsInput.dataset.prev = newRows;
+      presetWidthLabel.textContent = p.w;
+    }
     const cfg = getCurrentConfig();
-    scaleValue.textContent        = `×${scale.toFixed(1)}`;
-    gridSizeDisplay.textContent   = `${cfg.cols}열 × ${cfg.rows}행`;
     resolutionDisplay.textContent = `${cfg.w} × ${cfg.h}`;
   }
 
@@ -719,6 +856,8 @@
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     viewZoom = Math.max(0.1, Math.min(10.0, viewZoom * factor));
     applyCanvasTransform();
+    applyCanvasSize();
+    renderCanvas(currentConfig);
   }, { passive: false });
 
   // document 레벨 Ctrl+휠 브라우저 줌 전역 차단
@@ -757,7 +896,15 @@
       document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentPreset = btn.dataset.preset;
-      customInputs.classList.toggle('show', currentPreset === 'custom');
+      const isCustom = currentPreset === 'custom';
+      customInputs.classList.toggle('show', isCustom);
+      presetHeightRow.classList.toggle('hidden', isCustom);
+      if (isCustom) {
+        gridColsInput.value = gridColsInput.dataset.prev = 48;
+        gridRowsInput.value = gridRowsInput.dataset.prev = 27;
+      } else {
+        presetHeightInput.value = PRESETS[currentPreset].h;
+      }
       scale = 1.0;
       updateDisplay();
     });
@@ -771,9 +918,35 @@
     if (scale > 0.5) { scale = Math.round((scale - 0.1) * 10) / 10; updateDisplay(); }
   });
 
-  // Custom 실시간
-  ['custom-width', 'custom-height', 'custom-cols', 'custom-rows'].forEach(id => {
+  // Custom 실시간 (해상도)
+  ['custom-width', 'custom-height'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateDisplay);
+  });
+
+  // 프리셋 세로 높이 입력
+  presetHeightInput.addEventListener('input', updateDisplay);
+  presetHeightInput.addEventListener('blur', () => {
+    const val = parseInt(presetHeightInput.value);
+    if (!presetHeightInput.value.trim() || isNaN(val) || val < 100) {
+      presetHeightInput.value = PRESETS[currentPreset]?.h || 1080;
+      updateDisplay();
+    }
+  });
+
+  // 격자 수 직접 입력: blur 시 빈값이면 이전값 복구
+  [gridColsInput, gridRowsInput].forEach(el => {
+    el.addEventListener('blur', () => {
+      const val = parseInt(el.value);
+      if (!el.value.trim() || isNaN(val) || val < 2 || val > 200) {
+        el.value = el.dataset.prev || el.value;
+      } else {
+        el.dataset.prev = val;
+        el.value = val;
+      }
+    });
+    el.addEventListener('focus', () => {
+      el.dataset.prev = el.value;
+    });
   });
 
   // 에러 초기화
@@ -853,6 +1026,7 @@
           obj: clicked,
           origStartCol: clicked.startCol, origStartRow: clicked.startRow,
           origEndCol:   clicked.endCol,   origEndRow:   clicked.endRow,
+          origCompositeRects: clicked.compositeRects ? clicked.compositeRects.map(r => ({ ...r })) : null,
           startMouseCol: col, startMouseRow: row,
           previewStartCol: clicked.startCol, previewStartRow: clicked.startRow,
           previewEndCol:   clicked.endCol,   previewEndRow:   clicked.endRow,
@@ -887,11 +1061,19 @@
       moveState.previewStartRow = moveState.origStartRow + clampedDR;
       moveState.previewEndCol   = moveState.origEndCol   + clampedDC;
       moveState.previewEndRow   = moveState.origEndRow   + clampedDR;
-      moveState.valid = !overlapsOtherObjects(
-        moveState.previewStartCol, moveState.previewStartRow,
-        moveState.previewEndCol,   moveState.previewEndRow,
-        moveState.obj.id
-      );
+      if (moveState.origCompositeRects) {
+        // 복합 객체: 각 rect가 다른 객체와 겹치지 않는지 확인
+        moveState.valid = !moveState.origCompositeRects.some(r =>
+          overlapsOtherObjects(r.startCol + clampedDC, r.startRow + clampedDR,
+                               r.endCol   + clampedDC, r.endRow   + clampedDR, moveState.obj.id)
+        );
+      } else {
+        moveState.valid = !overlapsOtherObjects(
+          moveState.previewStartCol, moveState.previewStartRow,
+          moveState.previewEndCol,   moveState.previewEndRow,
+          moveState.obj.id
+        );
+      }
       gridCanvas.style.cursor = 'grabbing';
       renderCanvas(currentConfig);
       return;
@@ -950,10 +1132,18 @@
       const changed = psc !== moveState.origStartCol || psr !== moveState.origStartRow;
       if (changed && valid) {
         pushHistory();
+        const dc = moveState.previewStartCol - moveState.origStartCol;
+        const dr = moveState.previewStartRow - moveState.origStartRow;
         moveState.obj.startCol = moveState.previewStartCol;
         moveState.obj.startRow = moveState.previewStartRow;
         moveState.obj.endCol   = moveState.previewEndCol;
         moveState.obj.endRow   = moveState.previewEndRow;
+        if (moveState.origCompositeRects) {
+          moveState.obj.compositeRects = moveState.origCompositeRects.map(r => ({
+            startCol: r.startCol + dc, startRow: r.startRow + dr,
+            endCol:   r.endCol   + dc, endRow:   r.endRow   + dr
+          }));
+        }
       }
       moveState = null;
       renderCanvas(currentConfig);
@@ -985,6 +1175,12 @@
 
     // R → 객체 생성
     if (e.key === 'r' && !e.target.matches('input, textarea') && projectCreated) createObjectFromSelection();
+
+    // D → 도려내기
+    if (e.key === 'd' && !e.target.matches('input, textarea') && projectCreated && dragState) carveOutRegion();
+
+    // M → 병합
+    if (e.key === 'm' && !e.target.matches('input, textarea') && projectCreated) mergeSelectedObjects();
 
     // Escape → 취소 순서대로
     if (e.key === 'Escape') {
@@ -1035,6 +1231,11 @@
     deleteMultiSelection();
   });
 
+  // 속성 패널: 다중 선택 병합
+  document.getElementById('panel-btn-multi-merge').addEventListener('click', () => {
+    mergeSelectedObjects();
+  });
+
   // 속성 패널: 이름 변경
   panelLabelInput.addEventListener('input', () => {
     if (selectedObject) {
@@ -1054,28 +1255,6 @@
     deleteSelectedObject();
   });
 
-  // 배경 객체 생성 버튼 (1개 제한, #CCCCCC 고정)
-  document.getElementById('btn-bg-create').addEventListener('click', () => {
-    if (!projectCreated) return;
-    if (objects.some(o => o.isBg)) return; // 이미 배경 있음
-    pushHistory();
-    const bg = {
-      id:          generateId(),
-      label:       '배경',
-      description: '',
-      color:       '#CCCCCC',
-      isBg:        true,
-      startCol:    0,
-      startRow:    0,
-      endCol:      currentConfig.cols - 1,
-      endRow:      currentConfig.rows - 1
-    };
-    objects.unshift(bg);
-    renderCanvas(currentConfig);
-    updateObjectBar();
-    updateObjectList();
-  });
-
   // 맞추기 버튼 → 줌·팬 리셋
   document.getElementById('btn-fit').addEventListener('click', () => {
     if (!projectCreated) return;
@@ -1083,6 +1262,8 @@
     viewPanX = 0;
     viewPanY = 0;
     applyCanvasTransform();
+    applyCanvasSize();
+    renderCanvas(currentConfig);
   });
 
   // 격자선 토글 버튼
@@ -1172,19 +1353,19 @@
 
   // 프로젝트 상태 → JSON 구조 생성 (save-load.md 규격)
   function buildProjectData() {
-    const bgObj = objects.find(o => o.isBg);
     return {
       projectName:    displayProjectName.value,
       preset:         currentPreset,
       resolution:     { w: currentConfig.w, h: currentConfig.h },
       gridSize:       { cols: currentConfig.cols, rows: currentConfig.rows },
       gridMultiplier: scale,
-      background:     bgObj ? { color: bgObj.color, description: bgObj.description } : null,
-      objects:        objects.filter(o => !o.isBg).map(o => ({
-        id: o.id, label: o.label, description: o.description, color: o.color,
-        startCol: o.startCol, startRow: o.startRow, endCol: o.endCol, endRow: o.endRow
-      })),
-      objectOrder:    objects.filter(o => !o.isBg).map(o => o.id)
+      objects:        objects.map(o => {
+        const obj = { id: o.id, label: o.label, description: o.description, color: o.color,
+          startCol: o.startCol, startRow: o.startRow, endCol: o.endCol, endRow: o.endRow };
+        if (o.compositeRects) obj.compositeRects = o.compositeRects.map(r => ({ ...r }));
+        return obj;
+      }),
+      objectOrder:    objects.map(o => o.id)
     };
   }
 
@@ -1232,22 +1413,13 @@
     objects    = [];
     usedColors = new Set();
 
-    if (data.background) {
-      objects.push({
-        id: generateId(), label: '배경',
-        description: data.background.description || '',
-        color: data.background.color || '#CCCCCC',
-        isBg: true,
-        startCol: 0, startRow: 0,
-        endCol: cfg.cols - 1, endRow: cfg.rows - 1
-      });
-    }
-
     sorted.forEach(o => {
-      objects.push({
+      const obj = {
         id: o.id, label: o.label, description: o.description, color: o.color,
         startCol: o.startCol, startRow: o.startRow, endCol: o.endCol, endRow: o.endRow
-      });
+      };
+      if (o.compositeRects) obj.compositeRects = o.compositeRects.map(r => ({ ...r }));
+      objects.push(obj);
       usedColors.add(o.color);
     });
 
@@ -1371,45 +1543,47 @@
     return `${v}-${h}`;
   }
 
-  // 프리뷰 PNG 생성 (테두리 + 색상 + 이름, 격자선·범례 없음)
+  // ===== Export =====
+
+  // 프리뷰 PNG 생성 (전체 페이지, 격자선·범례 없음)
   function generatePreviewMap() {
     const cfg = currentConfig;
-    const c  = document.createElement('canvas');
-    c.width  = cfg.w; c.height = cfg.h;
-    const cx = c.getContext('2d');
-    const cw = cfg.w / cfg.cols, ch = cfg.h / cfg.rows;
+    const c   = document.createElement('canvas');
+    c.width   = cfg.w; c.height = cfg.h;
+    const cx  = c.getContext('2d');
+    const cw  = cfg.w / cfg.cols, ch = cfg.h / cfg.rows;
+    const lw  = Math.max(2, Math.floor(cfg.w / 600));
 
-    cx.fillStyle = '#2a2a3a';
+    cx.fillStyle = '#ffffff';
     cx.fillRect(0, 0, cfg.w, cfg.h);
 
     objects.forEach(obj => {
-      const x = obj.startCol * cw, y = obj.startRow * ch;
-      const w = (obj.endCol - obj.startCol + 1) * cw;
-      const h = (obj.endRow - obj.startRow + 1) * ch;
-      cx.globalAlpha = obj.isBg ? 0.25 : 0.65;
-      cx.fillStyle   = obj.color;
-      cx.fillRect(x, y, w, h);
-      cx.globalAlpha = 1;
-      cx.strokeStyle = obj.color;
-      cx.lineWidth   = Math.max(2, Math.floor(cfg.w / 600));
-      cx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      getObjectRects(obj).forEach(r => {
+        const x = r.startCol * cw, y = r.startRow * ch;
+        const w = (r.endCol - r.startCol + 1) * cw;
+        const h = (r.endRow - r.startRow + 1) * ch;
+        cx.globalAlpha = 0.65;
+        cx.fillStyle   = obj.color;
+        cx.fillRect(x, y, w, h);
+        cx.globalAlpha = 1;
+        cx.strokeStyle = obj.color;
+        cx.lineWidth   = lw;
+        cx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      });
     });
 
-    // 객체 이름 텍스트 (bg 제외)
     objects.forEach(obj => {
-      if (obj.isBg || !obj.label) return;
+      if (!obj.label) return;
       const x = obj.startCol * cw, y = obj.startRow * ch;
       const w = (obj.endCol - obj.startCol + 1) * cw;
       const h = (obj.endRow - obj.startRow + 1) * ch;
-      const labelFs = Math.max(8, Math.min(Math.floor(h * 0.2), 36));
-      cx.font         = `bold ${labelFs}px Segoe UI, sans-serif`;
-      cx.fillStyle    = 'rgba(255,255,255,0.9)';
-      cx.textAlign    = 'center';
-      cx.textBaseline = 'middle';
-      cx.shadowColor  = 'rgba(0,0,0,0.8)';
-      cx.shadowBlur   = 3;
+      const fs = Math.max(8, Math.min(Math.floor(h * 0.2), 36));
+      cx.font = `bold ${fs}px Segoe UI, sans-serif`;
+      cx.fillStyle = 'rgba(0,0,0,0.9)';
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.shadowColor = 'rgba(255,255,255,0.9)'; cx.shadowBlur = 3;
       cx.fillText(obj.label, x + w / 2, y + h / 2);
-      cx.shadowBlur   = 0;
+      cx.shadowBlur = 0;
     });
 
     return c;
@@ -1419,10 +1593,9 @@
   function generatePromptText() {
     if (!projectCreated || objects.length === 0) return '';
     return objects.map(obj => {
-      const colorName = getColorName(obj.color);
-      const pos       = getObjectPosition(obj, currentConfig);
-      const desc      = obj.description || obj.label || '';
-      return `${colorName} | ${pos} | ${desc}`;
+      const pos  = getObjectPosition(obj, currentConfig);
+      const desc = obj.description || obj.label || '';
+      return `${getColorName(obj.color)} | ${pos} | ${desc}`;
     }).join('\n');
   }
 
@@ -1431,10 +1604,9 @@
   function openExportModal() {
     if (!projectCreated) return;
     exportPrevCanvas = generatePreviewMap();
-    // img src를 full-res data URL로 설정 → 우클릭 복사도 원본 해상도
     document.getElementById('prev-preview-img').src = exportPrevCanvas.toDataURL('image/png');
-    document.getElementById('export-modal').classList.remove('hidden');
     document.getElementById('export-prompt-text').value = generatePromptText();
+    document.getElementById('export-modal').classList.remove('hidden');
   }
 
   function closeExportModal() {
@@ -1445,10 +1617,8 @@
     canvas.toBlob(blob => {
       const url = URL.createObjectURL(blob);
       const a   = Object.assign(document.createElement('a'), { href: url, download: filename });
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
     });
   }
 
