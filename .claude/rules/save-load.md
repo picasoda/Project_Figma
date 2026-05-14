@@ -24,7 +24,11 @@ paths:
       "description": "",
       "color": "#FF0000",
       "startCol": 0, "startRow": 0,
-      "endCol": 3, "endRow": 2
+      "endCol": 3, "endRow": 2,
+      "compositeRects": [               // 복합 객체일 때만 존재 (선택 필드)
+        { "startCol": 0, "startRow": 0, "endCol": 3, "endRow": 0 },
+        { "startCol": 0, "startRow": 2, "endCol": 3, "endRow": 2 }
+      ]
     }
   ],
   "objectOrder": ["id1", "id2"]

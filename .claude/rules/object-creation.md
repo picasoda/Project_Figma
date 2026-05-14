@@ -28,4 +28,18 @@ paths:
 - label: 객체 이름
 - description: 자연어 설명
 - color: 팔레트 색상 hex
-- startCol, startRow, endCol, endRow: 셀 범위
+- startCol, startRow, endCol, endRow: 셀 범위 (복합 객체의 경우 전체 바운딩 박스)
+- compositeRects (선택): [{startCol, startRow, endCol, endRow}, ...] — 복합 객체일 때만 존재
+
+## 병합 (복합 객체 생성)
+- Shift+클릭 다중 선택 → M키 또는 속성 패널 "병합" 버튼
+- 마지막으로 클릭한 객체의 label·description·color 상속
+- 각 객체 rect → compositeRects 배열로 통합, 원본 객체들 제거
+- 선택 객체가 1개 이하이면 병합 불가
+- Undo 대상
+
+## 복합 객체 규칙
+- compositeRects 각 rect에 대해 겹침 체크·렌더링 수행
+- 이동: 모든 rect에 동일 delta 적용 후 바운딩 박스 재계산
+- 크기 조절: 불가 (어느 rect를 조절할지 특정 불가) — 핸들 미표시
+- 텍스트 레이블: 바운딩 박스 중심에 1개 표시
