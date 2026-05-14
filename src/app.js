@@ -429,6 +429,31 @@
     applyCanvasSize();
   }
 
+  // 복합 객체의 외곽 경계선만 그리기 (인접 rect 사이 내부 선 제거)
+  function drawCompositeBorder(rects, cellW, cellH) {
+    const covered = new Set();
+    rects.forEach(r => {
+      for (let c = r.startCol; c <= r.endCol; c++) {
+        for (let row = r.startRow; row <= r.endRow; row++) {
+          covered.add(c * 10000 + row);
+        }
+      }
+    });
+    ctx.beginPath();
+    rects.forEach(r => {
+      for (let c = r.startCol; c <= r.endCol; c++) {
+        for (let row = r.startRow; row <= r.endRow; row++) {
+          const x0 = c * cellW, y0 = row * cellH;
+          if (!covered.has(c * 10000 + (row - 1)))     { ctx.moveTo(x0, y0);          ctx.lineTo(x0 + cellW, y0); }
+          if (!covered.has(c * 10000 + (row + 1)))     { ctx.moveTo(x0, y0 + cellH);  ctx.lineTo(x0 + cellW, y0 + cellH); }
+          if (!covered.has((c - 1) * 10000 + row))     { ctx.moveTo(x0, y0);          ctx.lineTo(x0, y0 + cellH); }
+          if (!covered.has((c + 1) * 10000 + row))     { ctx.moveTo(x0 + cellW, y0);  ctx.lineTo(x0 + cellW, y0 + cellH); }
+        }
+      }
+    });
+    ctx.stroke();
+  }
+
   // ===== 캔버스 전체 렌더링 =====
   function renderCanvas(cfg) {
     const canvasW = gridCanvas.width;
@@ -451,20 +476,25 @@
     // 일반 객체 렌더링 (활성 객체 제외, compositeRects 대응)
     objects.forEach(obj => {
       if (obj.id === activeId) return;
+      // fill: 각 rect 개별 채우기
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle   = obj.color;
       getObjectRects(obj).forEach(r => {
-        const x = r.startCol * cellW;
-        const y = r.startRow * cellH;
-        const w = (r.endCol - r.startCol + 1) * cellW;
-        const h = (r.endRow - r.startRow + 1) * cellH;
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle   = obj.color;
-        ctx.fillRect(x, y, w, h);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = obj.color;
-        ctx.lineWidth   = lw2;
-        ctx.setLineDash([]);
-        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+        ctx.fillRect(r.startCol * cellW, r.startRow * cellH,
+          (r.endCol - r.startCol + 1) * cellW, (r.endRow - r.startRow + 1) * cellH);
       });
+      ctx.globalAlpha = 1;
+      // border: 복합 객체는 외곽선만, 단순 객체는 strokeRect
+      ctx.strokeStyle = obj.color;
+      ctx.lineWidth   = lw2;
+      ctx.setLineDash([]);
+      if (obj.compositeRects) {
+        drawCompositeBorder(obj.compositeRects, cellW, cellH);
+      } else {
+        const x = obj.startCol * cellW, y = obj.startRow * cellH;
+        const w = (obj.endCol - obj.startCol + 1) * cellW, h = (obj.endRow - obj.startRow + 1) * cellH;
+        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+      }
     });
 
     // 다중 선택 하이라이트 (청록색 점선, compositeRects 대응)
@@ -576,13 +606,18 @@
       }
     }
 
-    // 객체 이름 텍스트 (격자선 위에 표시, 줌 자동 보정)
+    // 객체 이름 텍스트 (격자선 위에 표시, 복합 객체는 가장 큰 rect 중심에 표시)
     objects.forEach(obj => {
       if (obj.id === activeId || !obj.label) return;
-      const x = obj.startCol * cellW, y = obj.startRow * cellH;
-      const w = (obj.endCol - obj.startCol + 1) * cellW;
-      const h = (obj.endRow - obj.startRow + 1) * cellH;
-      drawObjectLabel(obj.label, x, y, w, h);
+      const lr = obj.compositeRects
+        ? obj.compositeRects.reduce((best, r) => {
+            const a = (r.endCol - r.startCol + 1) * (r.endRow - r.startRow + 1);
+            const ba = (best.endCol - best.startCol + 1) * (best.endRow - best.startRow + 1);
+            return a > ba ? r : best;
+          })
+        : obj;
+      drawObjectLabel(obj.label, lr.startCol * cellW, lr.startRow * cellH,
+        (lr.endCol - lr.startCol + 1) * cellW, (lr.endRow - lr.startRow + 1) * cellH);
     });
     if (moveState && moveState.obj.label) {
       const { previewStartCol:psc, previewStartRow:psr,
@@ -1574,9 +1609,16 @@
 
     objects.forEach(obj => {
       if (!obj.label) return;
-      const x = obj.startCol * cw, y = obj.startRow * ch;
-      const w = (obj.endCol - obj.startCol + 1) * cw;
-      const h = (obj.endRow - obj.startRow + 1) * ch;
+      const lr = obj.compositeRects
+        ? obj.compositeRects.reduce((best, r) => {
+            const a = (r.endCol - r.startCol + 1) * (r.endRow - r.startRow + 1);
+            const ba = (best.endCol - best.startCol + 1) * (best.endRow - best.startRow + 1);
+            return a > ba ? r : best;
+          })
+        : obj;
+      const x = lr.startCol * cw, y = lr.startRow * ch;
+      const w = (lr.endCol - lr.startCol + 1) * cw;
+      const h = (lr.endRow - lr.startRow + 1) * ch;
       const fs = Math.max(8, Math.min(Math.floor(h * 0.2), 36));
       cx.font = `bold ${fs}px Segoe UI, sans-serif`;
       cx.fillStyle = 'rgba(0,0,0,0.9)';
