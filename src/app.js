@@ -250,6 +250,7 @@
       propertyPanel.classList.add('hidden');
     }
     renderCanvas(currentConfig);
+    updateObjectList();
   }
 
   function clearMultiSelection() {
@@ -257,6 +258,7 @@
     multiSelection.clear();
     panelMultiInfo.classList.add('hidden');
     panelSingleContent.classList.remove('hidden');
+    updateObjectList();
   }
 
   // 다중 선택 객체들을 하나의 복합 객체로 병합
@@ -532,7 +534,7 @@
       ctx.setLineDash([]);
     }
 
-    // 이동 프리뷰 (compositeRects 대응: 각 rect 개별 렌더링)
+    // 이동 프리뷰 (fill: rect별, border: 복합 객체는 외곽선 통합)
     if (moveState) {
       const { previewStartCol:psc, previewStartRow:psr, valid, obj } = moveState;
       const dc = psc - moveState.origStartCol;
@@ -543,19 +545,26 @@
             endCol:   r.endCol   + dc, endRow:   r.endRow   + dr
           }))
         : [{ startCol: psc, startRow: psr, endCol: moveState.previewEndCol, endRow: moveState.previewEndRow }];
+      ctx.globalAlpha = valid ? 0.7 : 0.4;
+      ctx.fillStyle   = valid ? obj.color : '#ff3333';
       drawRects.forEach(r => {
         const x = r.startCol * cellW, y = r.startRow * cellH;
         const w = (r.endCol - r.startCol + 1) * cellW, h = (r.endRow - r.startRow + 1) * cellH;
-        ctx.globalAlpha = valid ? 0.7 : 0.4;
-        ctx.fillStyle   = valid ? obj.color : '#ff3333';
         ctx.fillRect(x, y, w, h);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
-        ctx.lineWidth   = lw2;
-        ctx.setLineDash(dash6);
-        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
-        ctx.setLineDash([]);
       });
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
+      ctx.lineWidth   = lw2;
+      ctx.setLineDash(dash6);
+      if (moveState.origCompositeRects) {
+        drawCompositeBorder(drawRects, cellW, cellH);
+      } else {
+        const r = drawRects[0];
+        const x = r.startCol * cellW, y = r.startRow * cellH;
+        const w = (r.endCol - r.startCol + 1) * cellW, h = (r.endRow - r.startRow + 1) * cellH;
+        ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
+      }
+      ctx.setLineDash([]);
     }
 
     // 크기 조절 프리뷰
@@ -622,9 +631,25 @@
         (lr.endCol - lr.startCol + 1) * cellW, (lr.endRow - lr.startRow + 1) * cellH);
     });
     if (moveState && moveState.obj.label) {
-      const { previewStartCol:psc, previewStartRow:psr,
-              previewEndCol:pec, previewEndRow:per, obj } = moveState;
-      drawObjectLabel(obj.label, psc*cellW, psr*cellH, (pec-psc+1)*cellW, (per-psr+1)*cellH);
+      const { previewStartCol:psc, previewStartRow:psr, obj } = moveState;
+      const dc = psc - moveState.origStartCol;
+      const dr = psr - moveState.origStartRow;
+      let lr;
+      if (moveState.origCompositeRects) {
+        const tr = moveState.origCompositeRects.map(r => ({
+          startCol: r.startCol + dc, startRow: r.startRow + dr,
+          endCol:   r.endCol   + dc, endRow:   r.endRow   + dr
+        }));
+        lr = tr.reduce((best, r) => {
+          const a = (r.endCol - r.startCol + 1) * (r.endRow - r.startRow + 1);
+          const ba = (best.endCol - best.startCol + 1) * (best.endRow - best.startRow + 1);
+          return a > ba ? r : best;
+        });
+      } else {
+        lr = { startCol: psc, startRow: psr, endCol: moveState.previewEndCol, endRow: moveState.previewEndRow };
+      }
+      drawObjectLabel(obj.label, lr.startCol*cellW, lr.startRow*cellH,
+        (lr.endCol - lr.startCol + 1)*cellW, (lr.endRow - lr.startRow + 1)*cellH);
     }
     if (resizeState && resizeState.obj.label) {
       const { previewStartCol:psc, previewStartRow:psr,
@@ -702,8 +727,11 @@
       item.appendChild(dot);
       item.appendChild(name);
 
-      // 클릭 → 선택
-      item.addEventListener('click', () => selectObject(obj));
+      // 클릭 → 선택 (Shift+클릭이면 다중 선택 토글)
+      item.addEventListener('click', e => {
+        if (e.shiftKey) toggleMultiSelect(obj);
+        else selectObject(obj);
+      });
 
       // 드래그 정렬
       item.draggable = true;
