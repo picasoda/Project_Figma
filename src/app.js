@@ -429,8 +429,9 @@
     applyCanvasSize();
   }
 
-  // 복합 객체의 외곽 경계선만 그리기 (인접 rect 사이 내부 선 제거)
-  function drawCompositeBorder(rects, cellW, cellH) {
+  // 복합 객체의 외곽 경계선만 그리기 (인접 rect 사이 내부 선 제거, cx 미지정 시 메인 ctx 사용)
+  function drawCompositeBorder(rects, cellW, cellH, cx) {
+    cx = cx || ctx;
     const covered = new Set();
     rects.forEach(r => {
       for (let c = r.startCol; c <= r.endCol; c++) {
@@ -439,19 +440,19 @@
         }
       }
     });
-    ctx.beginPath();
+    cx.beginPath();
     rects.forEach(r => {
       for (let c = r.startCol; c <= r.endCol; c++) {
         for (let row = r.startRow; row <= r.endRow; row++) {
           const x0 = c * cellW, y0 = row * cellH;
-          if (!covered.has(c * 10000 + (row - 1)))     { ctx.moveTo(x0, y0);          ctx.lineTo(x0 + cellW, y0); }
-          if (!covered.has(c * 10000 + (row + 1)))     { ctx.moveTo(x0, y0 + cellH);  ctx.lineTo(x0 + cellW, y0 + cellH); }
-          if (!covered.has((c - 1) * 10000 + row))     { ctx.moveTo(x0, y0);          ctx.lineTo(x0, y0 + cellH); }
-          if (!covered.has((c + 1) * 10000 + row))     { ctx.moveTo(x0 + cellW, y0);  ctx.lineTo(x0 + cellW, y0 + cellH); }
+          if (!covered.has(c * 10000 + (row - 1)))  { cx.moveTo(x0, y0);         cx.lineTo(x0 + cellW, y0); }
+          if (!covered.has(c * 10000 + (row + 1)))  { cx.moveTo(x0, y0 + cellH); cx.lineTo(x0 + cellW, y0 + cellH); }
+          if (!covered.has((c - 1) * 10000 + row))  { cx.moveTo(x0, y0);         cx.lineTo(x0, y0 + cellH); }
+          if (!covered.has((c + 1) * 10000 + row))  { cx.moveTo(x0 + cellW, y0); cx.lineTo(x0 + cellW, y0 + cellH); }
         }
       }
     });
-    ctx.stroke();
+    cx.stroke();
   }
 
   // ===== 캔버스 전체 렌더링 =====
@@ -497,37 +498,38 @@
       }
     });
 
-    // 다중 선택 하이라이트 (청록색 점선, compositeRects 대응)
+    // 다중 선택 하이라이트 (청록색 점선, 복합 객체는 외곽선만)
     if (multiSelection.size > 0) {
       objects.forEach(obj => {
         if (!multiSelection.has(obj.id)) return;
-        getObjectRects(obj).forEach(r => {
-          const x = r.startCol * cellW;
-          const y = r.startRow * cellH;
-          const w = (r.endCol - r.startCol + 1) * cellW;
-          const h = (r.endRow - r.startRow + 1) * cellH;
-          ctx.strokeStyle = '#00ffff';
-          ctx.lineWidth   = lw2;
-          ctx.setLineDash(dash5);
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth   = lw2;
+        ctx.setLineDash(dash5);
+        if (obj.compositeRects) {
+          drawCompositeBorder(obj.compositeRects, cellW, cellH);
+        } else {
+          const x = obj.startCol * cellW, y = obj.startRow * cellH;
+          const w = (obj.endCol - obj.startCol + 1) * cellW, h = (obj.endRow - obj.startRow + 1) * cellH;
           ctx.strokeRect(x + lw1, y + lw1, w - lw2, h - lw2);
-          ctx.setLineDash([]);
-        });
+        }
+        ctx.setLineDash([]);
       });
     }
 
-    // 단일 선택 하이라이트 (흰 점선, compositeRects 대응)
+    // 단일 선택 하이라이트 (흰 점선, 복합 객체는 외곽선만)
     if (selectedObject && !moveState && !resizeState) {
-      getObjectRects(selectedObject).forEach(r => {
-        const sx = r.startCol * cellW;
-        const sy = r.startRow * cellH;
-        const sw = (r.endCol - r.startCol + 1) * cellW;
-        const sh = (r.endRow - r.startRow + 1) * cellH;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth   = lw2;
-        ctx.setLineDash(dash6);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth   = lw2;
+      ctx.setLineDash(dash6);
+      if (selectedObject.compositeRects) {
+        drawCompositeBorder(selectedObject.compositeRects, cellW, cellH);
+      } else {
+        const sx = selectedObject.startCol * cellW, sy = selectedObject.startRow * cellH;
+        const sw = (selectedObject.endCol - selectedObject.startCol + 1) * cellW;
+        const sh = (selectedObject.endRow - selectedObject.startRow + 1) * cellH;
         ctx.strokeRect(sx + lw1, sy + lw1, sw - lw2, sh - lw2);
-        ctx.setLineDash([]);
-      });
+      }
+      ctx.setLineDash([]);
     }
 
     // 이동 프리뷰 (compositeRects 대응: 각 rect 개별 렌더링)
@@ -1593,18 +1595,22 @@
     cx.fillRect(0, 0, cfg.w, cfg.h);
 
     objects.forEach(obj => {
+      cx.globalAlpha = 0.65;
+      cx.fillStyle   = obj.color;
       getObjectRects(obj).forEach(r => {
-        const x = r.startCol * cw, y = r.startRow * ch;
-        const w = (r.endCol - r.startCol + 1) * cw;
-        const h = (r.endRow - r.startRow + 1) * ch;
-        cx.globalAlpha = 0.65;
-        cx.fillStyle   = obj.color;
-        cx.fillRect(x, y, w, h);
-        cx.globalAlpha = 1;
-        cx.strokeStyle = obj.color;
-        cx.lineWidth   = lw;
-        cx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        cx.fillRect(r.startCol * cw, r.startRow * ch,
+          (r.endCol - r.startCol + 1) * cw, (r.endRow - r.startRow + 1) * ch);
       });
+      cx.globalAlpha = 1;
+      cx.strokeStyle = obj.color;
+      cx.lineWidth   = lw;
+      if (obj.compositeRects) {
+        drawCompositeBorder(obj.compositeRects, cw, ch, cx);
+      } else {
+        const x = obj.startCol * cw, y = obj.startRow * ch;
+        const w = (obj.endCol - obj.startCol + 1) * cw, h = (obj.endRow - obj.startRow + 1) * ch;
+        cx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      }
     });
 
     objects.forEach(obj => {
