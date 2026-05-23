@@ -31,7 +31,10 @@ paths:
       ]
     }
   ],
-  "objectOrder": ["id1", "id2"]
+  "objectOrder": ["id1", "id2"],
+  "folders": [
+    { "id": "folder_...", "name": "폴더 이름", "objectIds": ["id1", "id2"] }
+  ]
 }
 
 ## 저장

@@ -35,9 +35,15 @@
 
   <!-- 객체 목록 패널 -->
   <div id="object-list-panel" class="hidden">
-    <div class="list-panel-header">목록</div>
+    <div class="list-panel-header">
+      <span>목록</span>
+      <button id="btn-add-folder" class="list-add-folder-btn" title="폴더 만들기">📁+</button>
+    </div>
     <div id="object-list"></div>
   </div>
+
+  <!-- 객체 목록 우클릭 컨텍스트 메뉴 -->
+  <div id="list-context-menu" class="list-context-menu hidden"></div>
 
   <!-- 속성 패널 -->
   <div id="property-panel" class="hidden">

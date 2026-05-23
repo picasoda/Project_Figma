@@ -28,8 +28,10 @@
   let selectedObject = null;      // 현재 선택된 객체
   let moveState      = null;      // 이동 드래그 상태
   let resizeState    = null;      // 크기 조절 드래그 상태
-  let multiSelection = new Set(); // 다중 선택 객체 ID
-  let history        = [];        // Undo 히스토리
+  let multiSelection   = new Set(); // 다중 선택 객체 ID
+  let folders          = [];        // 폴더 목록 [{id, name, collapsed, objectIds:[]}]
+  let listOrder        = [];        // 목록 표시 순서 (obj ID + folder ID 혼합)
+  let history          = [];        // Undo 히스토리
   const MAX_HISTORY  = 50;
 
   let viewZoom  = 1.0;   // 뷰 줌 레벨 (0.1 ~ 10.0)
@@ -95,6 +97,18 @@
 
   function generateId() {
     return 'obj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  function generateFolderId() {
+    return 'folder_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  }
+
+  function getFolderForObject(objId) {
+    return folders.find(f => f.objectIds.includes(objId)) || null;
+  }
+
+  function removeObjectFromAllFolders(objId) {
+    folders.forEach(f => { f.objectIds = f.objectIds.filter(id => id !== objId); });
   }
 
   // 복합 객체는 compositeRects, 단순 객체는 바운딩박스 rect 1개 반환
@@ -207,7 +221,9 @@
         ...o,
         compositeRects: o.compositeRects ? o.compositeRects.map(r => ({ ...r })) : undefined
       })),
-      usedColors: new Set(usedColors)
+      usedColors: new Set(usedColors),
+      folders:   folders.map(f => ({ ...f, objectIds: [...f.objectIds] })),
+      listOrder: [...listOrder]
     });
     if (history.length > MAX_HISTORY) history.shift();
   }
@@ -217,6 +233,8 @@
     const snap = history.pop();
     objects    = snap.objects;
     usedColors = snap.usedColors;
+    folders    = snap.folders   ? snap.folders.map(f => ({ ...f, objectIds: [...f.objectIds] })) : [];
+    listOrder  = snap.listOrder ? [...snap.listOrder] : [];
     selectedObject = null;
     moveState      = null;
     resizeState    = null;
@@ -277,10 +295,20 @@
     const er = Math.max(...compositeRects.map(r => r.endRow));
 
     selectedObjs.forEach(o => { if (o.id !== baseObj.id) usedColors.delete(o.color); });
+
+    // listOrder에서 첫 선택 항목 위치에 새 ID 삽입, 나머지 제거
+    const newId = generateId();
+    const firstIdx = listOrder.findIndex(id => multiSelection.has(id));
+    listOrder = listOrder.filter(id => !multiSelection.has(id));
+    if (firstIdx >= 0) listOrder.splice(firstIdx, 0, newId);
+    else listOrder.push(newId);
+
+    // 폴더 소속도 정리
+    multiSelection.forEach(id => removeObjectFromAllFolders(id));
     objects = objects.filter(o => !multiSelection.has(o.id));
 
     objects.push({
-      id: generateId(),
+      id: newId,
       label: baseObj.label,
       description: baseObj.description,
       color: baseObj.color,
@@ -300,6 +328,10 @@
   function deleteMultiSelection() {
     if (multiSelection.size === 0) return;
     pushHistory();
+    multiSelection.forEach(id => {
+      removeObjectFromAllFolders(id);
+      listOrder = listOrder.filter(lo => lo !== id);
+    });
     objects = objects.filter(o => {
       if (multiSelection.has(o.id)) { usedColors.delete(o.color); return false; }
       return true;
@@ -374,6 +406,8 @@
     if (!selectedObject) return;
     pushHistory();
     usedColors.delete(selectedObject.color);
+    listOrder = listOrder.filter(id => id !== selectedObject.id);
+    removeObjectFromAllFolders(selectedObject.id);
     objects = objects.filter(o => o.id !== selectedObject.id);
     selectedObject = null;
     propertyPanel.classList.add('hidden');
@@ -479,13 +513,18 @@
     // 일반 객체 렌더링 (활성 객체 제외, compositeRects 대응)
     objects.forEach(obj => {
       if (obj.id === activeId) return;
-      // fill: 각 rect 개별 채우기
+      // fill: 모든 rect를 단일 path로 채워 rect 경계 틈 방지
       ctx.globalAlpha = 0.55;
       ctx.fillStyle   = obj.color;
+      ctx.beginPath();
       getObjectRects(obj).forEach(r => {
-        ctx.fillRect(r.startCol * cellW, r.startRow * cellH,
-          (r.endCol - r.startCol + 1) * cellW, (r.endRow - r.startRow + 1) * cellH);
+        const px = Math.round(r.startCol * cellW);
+        const py = Math.round(r.startRow * cellH);
+        const pw = Math.round((r.endCol + 1) * cellW) - px;
+        const ph = Math.round((r.endRow + 1) * cellH) - py;
+        ctx.rect(px, py, pw, ph);
       });
+      ctx.fill();
       ctx.globalAlpha = 1;
       // border: 복합 객체는 외곽선만, 단순 객체는 strokeRect
       ctx.strokeStyle = obj.color;
@@ -547,11 +586,15 @@
         : [{ startCol: psc, startRow: psr, endCol: moveState.previewEndCol, endRow: moveState.previewEndRow }];
       ctx.globalAlpha = valid ? 0.7 : 0.4;
       ctx.fillStyle   = valid ? obj.color : '#ff3333';
+      ctx.beginPath();
       drawRects.forEach(r => {
-        const x = r.startCol * cellW, y = r.startRow * cellH;
-        const w = (r.endCol - r.startCol + 1) * cellW, h = (r.endRow - r.startRow + 1) * cellH;
-        ctx.fillRect(x, y, w, h);
+        const px = Math.round(r.startCol * cellW);
+        const py = Math.round(r.startRow * cellH);
+        const pw = Math.round((r.endCol + 1) * cellW) - px;
+        const ph = Math.round((r.endRow + 1) * cellH) - py;
+        ctx.rect(px, py, pw, ph);
       });
+      ctx.fill();
       ctx.globalAlpha = 1;
       ctx.strokeStyle = valid ? '#ffffff' : '#ff5555';
       ctx.lineWidth   = lw2;
@@ -668,6 +711,8 @@
     currentConfig  = cfg;
     objects        = [];
     usedColors     = new Set();
+    folders        = [];
+    listOrder      = [];
     dragState      = null;
     isDragging     = false;
     selectedObject = null;
@@ -702,6 +747,294 @@
   }
 
   // ===== 객체 목록 패널 업데이트 =====
+
+  // 드래그 시각 효과 전체 초기화
+  function clearDragVisuals() {
+    document.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over', 'dragging'));
+    document.querySelectorAll('.folder-header').forEach(el => el.classList.remove('drag-over', 'dragging', 'drop-target'));
+  }
+
+  // listOrder 재정렬 공통 함수 (targetId 앞에 draggedId 삽입)
+  function reorderListOrder(draggedId, targetId) {
+    if (draggedId === targetId) return;
+    const from = listOrder.indexOf(draggedId);
+    const to   = listOrder.indexOf(targetId);
+    if (from === -1 || to === -1) return;
+    pushHistory();
+    const [moved] = listOrder.splice(from, 1);
+    // from < to 이면 splice로 인해 to가 1 감소
+    listOrder.splice(from < to ? to - 1 : to, 0, moved);
+    updateObjectList();
+  }
+
+  function makeObjectListItem(obj, inFolder) {
+    const item = document.createElement('div');
+    item.className = 'obj-list-item' + (inFolder ? ' in-folder' : '');
+    item.dataset.id = obj.id;
+    if (selectedObject && selectedObject.id === obj.id) item.classList.add('selected');
+    else if (multiSelection.has(obj.id))                item.classList.add('selected');
+
+    const dot = document.createElement('div');
+    dot.className = 'obj-list-dot';
+    dot.style.backgroundColor = obj.color;
+
+    const name = document.createElement('span');
+    name.className = 'obj-list-name';
+    name.textContent = obj.label || '(이름 없음)';
+
+    item.appendChild(dot);
+    item.appendChild(name);
+
+    item.addEventListener('click', e => {
+      if (e.shiftKey) toggleMultiSelect(obj);
+      else selectObject(obj);
+    });
+    item.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      showObjectContextMenu(e.clientX, e.clientY, obj.id);
+    });
+
+    if (inFolder) {
+      // 폴더 내 객체: 폴더 내 순서 변경만
+      item.draggable = true;
+      item.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', obj.id);
+        e.dataTransfer.setData('text/in-folder', '1');
+        const srcFolder = getFolderForObject(obj.id);
+        if (srcFolder) e.dataTransfer.setData('text/source-folder-id', srcFolder.id);
+        item.classList.add('dragging');
+        e.stopPropagation();
+      });
+      item.addEventListener('dragend', clearDragVisuals);
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        clearDragVisuals();
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        clearDragVisuals();
+        const draggedId = e.dataTransfer.getData('text/plain');
+        if (!draggedId || draggedId === obj.id) return;
+        const targetFolder = getFolderForObject(obj.id);
+        if (!targetFolder) return;
+        const draggedFolder = getFolderForObject(draggedId);
+        if (draggedFolder && draggedFolder.id === targetFolder.id) {
+          // 같은 폴더 내 순서 변경
+          const fromIdx = targetFolder.objectIds.indexOf(draggedId);
+          const toIdx   = targetFolder.objectIds.indexOf(obj.id);
+          if (fromIdx !== -1 && toIdx !== -1) {
+            pushHistory();
+            const [moved] = targetFolder.objectIds.splice(fromIdx, 1);
+            targetFolder.objectIds.splice(toIdx, 0, moved);
+            updateObjectList();
+          }
+        } else {
+          // 다른 폴더 또는 미분류 객체 → 이 폴더에 추가
+          pushHistory();
+          removeObjectFromAllFolders(draggedId);
+          if (!targetFolder.objectIds.includes(draggedId)) targetFolder.objectIds.push(draggedId);
+          targetFolder.collapsed = false;
+          updateObjectList();
+        }
+      });
+    } else {
+      // 미분류 객체: listOrder 기반 재정렬 (폴더와도 교차 가능)
+      item.draggable = true;
+      item.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', obj.id);
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', clearDragVisuals);
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        clearDragVisuals();
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        clearDragVisuals();
+        const draggedId = e.dataTransfer.getData('text/plain');
+        const folderId  = e.dataTransfer.getData('text/folder-id');
+        const targetId  = obj.id;
+        // 폴더에서 드래그 중이면 listOrder 재정렬
+        if (folderId) { reorderListOrder(folderId, targetId); return; }
+        // 폴더 내 객체 → 폴더에서 꺼내 listOrder에 삽입
+        if (e.dataTransfer.getData('text/in-folder')) {
+          pushHistory();
+          removeObjectFromAllFolders(draggedId);
+          if (!listOrder.includes(draggedId)) listOrder.push(draggedId);
+          reorderListOrder(draggedId, targetId);
+          return;
+        }
+        reorderListOrder(draggedId, targetId);
+      });
+    }
+
+    return item;
+  }
+
+  function makeFolderGroup(folder) {
+    const group = document.createElement('div');
+    group.className = 'folder-group';
+    group.dataset.folderId = folder.id;
+
+    // 헤더
+    const header = document.createElement('div');
+    header.className = 'folder-header';
+    header.dataset.folderId = folder.id;
+
+    const toggle = document.createElement('span');
+    toggle.className = 'folder-toggle';
+    toggle.textContent = folder.collapsed ? '▶' : '▼';
+
+    const icon = document.createElement('span');
+    icon.className = 'folder-icon';
+    icon.textContent = '📁';
+
+    const nameDisplay = document.createElement('span');
+    nameDisplay.className = 'folder-name-display';
+    nameDisplay.textContent = folder.name;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'folder-delete-btn';
+    delBtn.textContent = '×';
+    delBtn.title = '폴더 삭제';
+    delBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      pushHistory();
+      listOrder = listOrder.filter(id => id !== folder.id);
+      folders = folders.filter(f => f.id !== folder.id);
+      updateObjectList();
+    });
+
+    // 폴더 이름 더블클릭 → 인라인 편집
+    nameDisplay.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.className = 'folder-name-input';
+      input.value = folder.name;
+      header.replaceChild(input, nameDisplay);
+      input.focus();
+      input.select();
+      const commit = () => {
+        folder.name = input.value.trim() || folder.name;
+        header.replaceChild(nameDisplay, input);
+        nameDisplay.textContent = folder.name;
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', e2 => {
+        if (e2.key === 'Enter') input.blur();
+        if (e2.key === 'Escape') { input.value = folder.name; input.blur(); }
+        e2.stopPropagation();
+      });
+    });
+
+    header.appendChild(toggle);
+    header.appendChild(icon);
+    header.appendChild(nameDisplay);
+    header.appendChild(delBtn);
+
+    // 폴더 헤더 드래그 → listOrder 재정렬
+    header.draggable = true;
+    header.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/folder-id', folder.id);
+      e.dataTransfer.effectAllowed = 'move';
+      header.classList.add('dragging');
+    });
+    header.addEventListener('dragend', clearDragVisuals);
+
+    // 헤더 클릭 → 접기/펼치기
+    header.addEventListener('click', e => {
+      if (e.target === delBtn) return;
+      folder.collapsed = !folder.collapsed;
+      toggle.textContent = folder.collapsed ? '▶' : '▼';
+      objectsEl.style.display = folder.collapsed ? 'none' : '';
+    });
+
+    // 드롭 → 상단 절반: 폴더 앞에 삽입 / 하단 절반: 폴더에 추가
+    header.addEventListener('dragover', e => {
+      e.preventDefault();
+      clearDragVisuals();
+      const isFolderDrag = e.dataTransfer.types.includes('text/folder-id');
+      if (isFolderDrag) {
+        header.classList.add('drag-over');
+      } else {
+        const rect = header.getBoundingClientRect();
+        const isTopHalf = e.clientY < rect.top + rect.height / 2;
+        header.classList.add(isTopHalf ? 'drag-over' : 'drop-target');
+      }
+    });
+    header.addEventListener('dragleave', () => {
+      header.classList.remove('drag-over', 'drop-target');
+    });
+    header.addEventListener('drop', e => {
+      e.preventDefault();
+      clearDragVisuals();
+
+      const droppedFolderId = e.dataTransfer.getData('text/folder-id');
+      if (droppedFolderId && droppedFolderId !== folder.id) {
+        reorderListOrder(droppedFolderId, folder.id);
+        return;
+      }
+
+      const rect = header.getBoundingClientRect();
+      const isTopHalf = e.clientY < rect.top + rect.height / 2;
+
+      // 폴더 내 객체
+      if (e.dataTransfer.getData('text/in-folder')) {
+        const draggedId = e.dataTransfer.getData('text/plain');
+        if (!draggedId) return;
+        const srcFolderId = e.dataTransfer.getData('text/source-folder-id');
+        if (isTopHalf) {
+          // 폴더 앞으로 꺼내기
+          pushHistory();
+          removeObjectFromAllFolders(draggedId);
+          if (!listOrder.includes(draggedId)) listOrder.push(draggedId);
+          reorderListOrder(draggedId, folder.id);
+        } else {
+          if (srcFolderId === folder.id) return; // 같은 폴더 → 무동작
+          pushHistory();
+          removeObjectFromAllFolders(draggedId);
+          if (!folder.objectIds.includes(draggedId)) folder.objectIds.push(draggedId);
+          folder.collapsed = false;
+          updateObjectList();
+        }
+        return;
+      }
+
+      // 미분류 객체
+      const draggedId = e.dataTransfer.getData('text/plain');
+      if (!draggedId) return;
+      if (isTopHalf) {
+        // 폴더 앞에 삽입
+        reorderListOrder(draggedId, folder.id);
+        return;
+      }
+      // 폴더에 추가
+      pushHistory();
+      removeObjectFromAllFolders(draggedId);
+      if (!folder.objectIds.includes(draggedId)) folder.objectIds.push(draggedId);
+      folder.collapsed = false;
+      updateObjectList();
+    });
+
+    group.appendChild(header);
+
+    // 폴더 내 객체 목록
+    const objectsEl = document.createElement('div');
+    objectsEl.className = 'folder-objects';
+    objectsEl.style.display = folder.collapsed ? 'none' : '';
+
+    folder.objectIds
+      .map(id => objects.find(o => o.id === id))
+      .filter(Boolean)
+      .forEach(obj => objectsEl.appendChild(makeObjectListItem(obj, true)));
+
+    group.appendChild(objectsEl);
+    return group;
+  }
+
   function updateObjectList() {
     const listEl    = document.getElementById('object-list');
     const listPanel = document.getElementById('object-list-panel');
@@ -709,59 +1042,32 @@
     listPanel.classList.remove('hidden');
     listEl.innerHTML = '';
 
+    const folderedIds  = new Set(folders.flatMap(f => f.objectIds));
+    const folderMap    = new Map(folders.map(f => [f.id, f]));
+    const objMap       = new Map(objects.map(o => [o.id, o]));
+
+    // listOrder 기반 순서로 렌더링
+    listOrder.forEach(id => {
+      if (folderMap.has(id)) {
+        listEl.appendChild(makeFolderGroup(folderMap.get(id)));
+      } else {
+        const obj = objMap.get(id);
+        if (obj && !folderedIds.has(id)) {
+          listEl.appendChild(makeObjectListItem(obj, false));
+        }
+      }
+    });
+
+    // listOrder에 없는 항목 뒤에 추가 (새로 생긴 항목 대비)
     objects.forEach(obj => {
-      const item = document.createElement('div');
-      item.className = 'obj-list-item';
-      item.dataset.id = obj.id;
-      if (selectedObject && selectedObject.id === obj.id) item.classList.add('selected');
-      else if (multiSelection.has(obj.id))                item.classList.add('selected');
-
-      const dot = document.createElement('div');
-      dot.className = 'obj-list-dot';
-      dot.style.backgroundColor = obj.color;
-
-      const name = document.createElement('span');
-      name.className = 'obj-list-name';
-      name.textContent = obj.label || '(이름 없음)';
-
-      item.appendChild(dot);
-      item.appendChild(name);
-
-      // 클릭 → 선택 (Shift+클릭이면 다중 선택 토글)
-      item.addEventListener('click', e => {
-        if (e.shiftKey) toggleMultiSelect(obj);
-        else selectObject(obj);
-      });
-
-      // 드래그 정렬
-      item.draggable = true;
-      item.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', obj.id);
-        item.classList.add('dragging');
-      });
-      item.addEventListener('dragend', () => {
-        item.classList.remove('dragging');
-        listEl.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over'));
-      });
-      item.addEventListener('dragover', e => {
-        e.preventDefault();
-        listEl.querySelectorAll('.obj-list-item').forEach(el => el.classList.remove('drag-over'));
-        item.classList.add('drag-over');
-      });
-      item.addEventListener('drop', e => {
-        e.preventDefault();
-        const draggedId = e.dataTransfer.getData('text/plain');
-        if (draggedId === obj.id) return;
-        const fromIdx = objects.findIndex(o => o.id === draggedId);
-        const toIdx   = objects.findIndex(o => o.id === obj.id);
-        if (fromIdx === -1 || toIdx === -1) return;
-        const [moved] = objects.splice(fromIdx, 1);
-        objects.splice(toIdx, 0, moved);
-        renderCanvas(currentConfig);
-        updateObjectList();
-      });
-
-      listEl.appendChild(item);
+      if (!folderedIds.has(obj.id) && !listOrder.includes(obj.id)) {
+        listEl.appendChild(makeObjectListItem(obj, false));
+      }
+    });
+    folders.forEach(folder => {
+      if (!listOrder.includes(folder.id)) {
+        listEl.appendChild(makeFolderGroup(folder));
+      }
     });
   }
 
@@ -789,6 +1095,7 @@
 
     objects.push(obj);
     usedColors.add(color);
+    listOrder.push(obj.id);
     dragState  = null;
     isDragging = false;
 
@@ -832,6 +1139,8 @@
 
       if (remaining.length === 0) {
         usedColors.delete(obj.color);
+        removeObjectFromAllFolders(obj.id);
+        listOrder = listOrder.filter(id => id !== obj.id);
         objects = objects.filter(o => o.id !== obj.id);
       } else if (remaining.length === 1 && !obj.compositeRects) {
         obj.startCol = remaining[0].startCol; obj.startRow = remaining[0].startRow;
@@ -1055,6 +1364,17 @@
       panDrag = { startX: e.clientX, startY: e.clientY,
                   startPanX: viewPanX, startPanY: viewPanY };
       document.getElementById('canvas-area').style.cursor = 'move';
+      return;
+    }
+    // 캔버스 외부 배경 좌클릭 → 선택 해제
+    if (e.button === 0 && projectCreated && e.target !== gridCanvas) {
+      if (selectedObject) deselectObject();
+      else if (multiSelection.size > 0) {
+        clearMultiSelection();
+        propertyPanel.classList.add('hidden');
+        renderCanvas(currentConfig);
+        updateObjectList();
+      }
     }
   });
 
@@ -1103,7 +1423,10 @@
 
     // 빈 셀 클릭 → 선택 해제 + 드래그 시작
     if (selectedObject) deselectObject();
-    clearMultiSelection();
+    else if (multiSelection.size > 0) {
+      clearMultiSelection();
+      propertyPanel.classList.add('hidden');
+    }
     isDragging = true;
     dragState  = { startCol: col, startRow: row, endCol: col, endRow: row };
     renderCanvas(currentConfig);
@@ -1410,6 +1733,97 @@
     }
   });
 
+  // ===== 폴더 컨텍스트 메뉴 =====
+
+  const ctxMenu = document.getElementById('list-context-menu');
+  let ctxTargetObjId = null;
+
+  function showObjectContextMenu(x, y, objId) {
+    ctxTargetObjId = objId;
+    ctxMenu.innerHTML = '';
+
+    const currentFolder = getFolderForObject(objId);
+
+    if (folders.length > 0) {
+      const label = document.createElement('div');
+      label.className = 'ctx-section-label';
+      label.textContent = '폴더에 추가';
+      ctxMenu.appendChild(label);
+
+      folders.forEach(f => {
+        const item = document.createElement('div');
+        item.className = 'ctx-item' + (currentFolder?.id === f.id ? ' active' : '');
+        item.innerHTML = `<span>📁</span><span>${f.name}</span>`;
+        item.addEventListener('click', () => {
+          if (currentFolder?.id === f.id) return;
+          pushHistory();
+          removeObjectFromAllFolders(objId);
+          f.objectIds.push(objId);
+          f.collapsed = false;
+          updateObjectList();
+          hideContextMenu();
+        });
+        ctxMenu.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'ctx-empty';
+      empty.textContent = '폴더가 없습니다';
+      ctxMenu.appendChild(empty);
+    }
+
+    if (currentFolder) {
+      const sep = document.createElement('div');
+      sep.className = 'ctx-separator';
+      ctxMenu.appendChild(sep);
+      const removeItem = document.createElement('div');
+      removeItem.className = 'ctx-item danger';
+      removeItem.innerHTML = '<span>↩</span><span>폴더에서 제거</span>';
+      removeItem.addEventListener('click', () => {
+        pushHistory();
+        removeObjectFromAllFolders(objId);
+        updateObjectList();
+        hideContextMenu();
+      });
+      ctxMenu.appendChild(removeItem);
+    }
+
+    ctxMenu.classList.remove('hidden');
+    const menuW = 170, menuH = ctxMenu.offsetHeight || 120;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    ctxMenu.style.left = (x + menuW > vw ? x - menuW : x) + 'px';
+    ctxMenu.style.top  = (y + menuH > vh ? y - menuH : y) + 'px';
+  }
+
+  function hideContextMenu() {
+    ctxMenu.classList.add('hidden');
+    ctxTargetObjId = null;
+  }
+
+  document.addEventListener('click', e => {
+    if (!ctxMenu.classList.contains('hidden') && !ctxMenu.contains(e.target)) {
+      hideContextMenu();
+    }
+  });
+
+  document.addEventListener('contextmenu', e => {
+    if (!ctxMenu.contains(e.target)) hideContextMenu();
+  });
+
+  // 폴더 만들기 버튼
+  document.getElementById('btn-add-folder').addEventListener('click', () => {
+    if (!projectCreated) return;
+    pushHistory();
+    const folder = { id: generateFolderId(), name: '새 폴더', collapsed: false, objectIds: [] };
+    folders.push(folder);
+    listOrder.push(folder.id);
+    updateObjectList();
+    // 새 폴더 헤더에서 자동 이름 편집 시작
+    const listEl = document.getElementById('object-list');
+    const newHeader = listEl.querySelector(`[data-folder-id="${folder.id}"] .folder-name-display`);
+    if (newHeader) newHeader.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  });
+
   // ===== 저장·불러오기 =====
 
   const LOCAL_STORAGE_KEY = 'gridframe_autosave';
@@ -1430,7 +1844,9 @@
         if (o.compositeRects) obj.compositeRects = o.compositeRects.map(r => ({ ...r }));
         return obj;
       }),
-      objectOrder:    objects.map(o => o.id)
+      objectOrder:    objects.map(o => o.id),
+      folders:        folders.map(f => ({ id: f.id, name: f.name, objectIds: [...f.objectIds] })),
+      listOrder:      [...listOrder]
     };
   }
 
@@ -1487,6 +1903,30 @@
       objects.push(obj);
       usedColors.add(o.color);
     });
+
+    // 폴더 복원 (저장된 objectIds 중 실제 존재하는 것만 유지)
+    const validObjIds = new Set(objects.map(o => o.id));
+    folders = (data.folders || []).map(f => ({
+      id:        f.id,
+      name:      f.name || '폴더',
+      collapsed: f.collapsed || false,
+      objectIds: (f.objectIds || []).filter(id => validObjIds.has(id))
+    }));
+
+    // listOrder 복원 (구버전 호환: 없으면 objectOrder + folderIds로 재구성)
+    const validFolderIds = new Set(folders.map(f => f.id));
+    if (data.listOrder && data.listOrder.length > 0) {
+      listOrder = data.listOrder.filter(id => validObjIds.has(id) || validFolderIds.has(id));
+      // 누락된 항목 뒤에 추가
+      objects.forEach(o => { if (!listOrder.includes(o.id)) listOrder.push(o.id); });
+      folders.forEach(f => { if (!listOrder.includes(f.id)) listOrder.push(f.id); });
+    } else {
+      const folderedIds = new Set(folders.flatMap(f => f.objectIds));
+      listOrder = [
+        ...(data.objectOrder || []).filter(id => validObjIds.has(id) && !folderedIds.has(id)),
+        ...folders.map(f => f.id)
+      ];
+    }
 
     renderCanvas(cfg);
     updateObjectBar();
@@ -1625,10 +2065,15 @@
     objects.forEach(obj => {
       cx.globalAlpha = 0.65;
       cx.fillStyle   = obj.color;
+      cx.beginPath();
       getObjectRects(obj).forEach(r => {
-        cx.fillRect(r.startCol * cw, r.startRow * ch,
-          (r.endCol - r.startCol + 1) * cw, (r.endRow - r.startRow + 1) * ch);
+        const px = Math.round(r.startCol * cw);
+        const py = Math.round(r.startRow * ch);
+        const pw = Math.round((r.endCol + 1) * cw) - px;
+        const ph = Math.round((r.endRow + 1) * ch) - py;
+        cx.rect(px, py, pw, ph);
       });
+      cx.fill();
       cx.globalAlpha = 1;
       cx.strokeStyle = obj.color;
       cx.lineWidth   = lw;
@@ -1665,14 +2110,34 @@
     return c;
   }
 
-  // 프롬프트 텍스트 자동 생성
+  // 프롬프트 텍스트 자동 생성 (폴더별 그룹화)
   function generatePromptText() {
     if (!projectCreated || objects.length === 0) return '';
-    return objects.map(obj => {
+    const toLine = obj => {
       const pos  = getObjectPosition(obj, currentConfig);
       const desc = obj.description || obj.label || '';
       return `${getColorName(obj.color)} | ${pos} | ${desc}`;
-    }).join('\n');
+    };
+
+    const folderedIds = new Set(folders.flatMap(f => f.objectIds));
+    const unfolderedObjs = objects.filter(o => !folderedIds.has(o.id));
+    const lines = [];
+
+    // 미분류 객체
+    unfolderedObjs.forEach(obj => lines.push(toLine(obj)));
+
+    // 폴더별 그룹
+    folders.forEach(folder => {
+      const folderObjs = folder.objectIds
+        .map(id => objects.find(o => o.id === id))
+        .filter(Boolean);
+      if (folderObjs.length === 0) return;
+      if (lines.length > 0) lines.push('');
+      lines.push(`[${folder.name}]`);
+      folderObjs.forEach(obj => lines.push(toLine(obj)));
+    });
+
+    return lines.join('\n');
   }
 
   let exportPrevCanvas = null;

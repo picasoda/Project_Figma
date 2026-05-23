@@ -434,7 +434,7 @@
   }
   #object-list-panel.hidden { display: none; }
   .list-panel-header {
-    padding: 10px 12px 8px;
+    padding: 8px 8px 8px 12px;
     font-size: 11px;
     font-weight: 700;
     color: #666;
@@ -442,7 +442,22 @@
     letter-spacing: 0.5px;
     border-bottom: 1px solid #e0e0e0;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
+  .list-add-folder-btn {
+    background: none;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: all 0.15s;
+  }
+  .list-add-folder-btn:hover { background: #eef2ff; color: #4a7aff; }
   #object-list {
     flex: 1;
     overflow-y: auto;
@@ -570,6 +585,106 @@
   white-space: nowrap;
   padding-right: 16px;
 }
+  /* ===== 폴더 그룹 ===== */
+  .folder-group { }
+  .folder-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px 6px 8px;
+    cursor: pointer;
+    user-select: none;
+    border-left: 2px solid transparent;
+    transition: background 0.1s;
+    border-top: 1px solid #f0f0f0;
+  }
+  .folder-header:hover { background: #f0f4ff; }
+  .folder-header.drop-target { background: #dde8ff; border-left-color: #4a7aff; }
+  .folder-header.drag-over { border-top: 2px solid #4a7aff; background: #f0f4ff; }
+  .folder-header.dragging { opacity: 0.4; }
+  .folder-toggle {
+    font-size: 9px;
+    color: #aaa;
+    width: 10px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .folder-icon { font-size: 12px; flex-shrink: 0; }
+  .folder-name-display {
+    font-size: 12px;
+    color: #444;
+    font-weight: 600;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .folder-name-input {
+    font-size: 12px;
+    color: #1a1a2e;
+    font-weight: 600;
+    flex: 1;
+    background: #eef2ff;
+    border: 1px solid #4a7aff;
+    border-radius: 3px;
+    padding: 1px 4px;
+    min-width: 0;
+    outline: none;
+  }
+  .folder-delete-btn {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 2px;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: color 0.1s;
+  }
+  .folder-delete-btn:hover { color: #e53935; }
+  .folder-objects { }
+  .obj-list-item.in-folder {
+    padding-left: 28px;
+  }
+
+  /* ===== 우클릭 컨텍스트 메뉴 ===== */
+  .list-context-menu {
+    position: fixed;
+    background: #fff;
+    border: 1px solid #d0d0d0;
+    border-radius: 7px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.13);
+    z-index: 500;
+    min-width: 160px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+  .list-context-menu.hidden { display: none; }
+  .ctx-section-label {
+    padding: 5px 12px 3px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .ctx-item {
+    padding: 7px 14px;
+    color: #333;
+    cursor: pointer;
+    transition: background 0.1s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .ctx-item:hover { background: #f0f4ff; }
+  .ctx-item.active { color: #4a7aff; font-weight: 600; }
+  .ctx-item.danger { color: #e53935; }
+  .ctx-item.danger:hover { background: #fff0f0; }
+  .ctx-separator { height: 1px; background: #eeeeee; margin: 4px 0; }
+  .ctx-empty { padding: 7px 14px; color: #bbb; font-style: italic; }
+
 .hidden {
   display: none !important;
 }
